@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Slice of Life</title>
+  <link rel="stylesheet" href="/icons/tabler-icons.min.css">
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .settings-icon {
+      color: #3A6090;
+      font-size: 18px;
+      cursor: pointer;
+      -webkit-app-region: no-drag;
+    }
+    .settings-icon:hover { color: #6A9FD4; }
+
+    /* ── Content area ──────────────────────────────────────────────────────── */
+    .content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 40px 20px;
+    }
+
+    /* ── Recent banner ─────────────────────────────────────────────────────── */
+    .recent-section {
+      flex: 1;
+      width: 100%;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      gap: 10px;
+      padding-bottom: 8px;
+      overflow: hidden;
+    }
+    .recent-section.visible { display: flex; }
+
+    .recent-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.09em;
+      color: #3A6090;
+      padding: 0 40px;
+    }
+
+    .banner-track {
+      width: 100%;
+      overflow: hidden;
+      -webkit-mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+              mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+    }
+
+    @keyframes bannerScroll {
+      0%   { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+
+    .banner-items {
+      display: flex;
+      gap: 10px;
+      width: max-content;
+      animation: bannerScroll 35s linear infinite;
+      padding: 4px 0;
+    }
+    .banner-items:hover { animation-play-state: paused; }
+
+    .banner-thumb {
+      width: 260px;
+      height: 160px;
+      border-radius: 10px;
+      overflow: hidden;
+      flex-shrink: 0;
+      position: relative;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .banner-thumb img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .banner-thumb::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 10px;
+      background: transparent;
+      -webkit-mask-image: none;
+      pointer-events: none;
+      backdrop-filter: blur(9px);
+      -webkit-backdrop-filter: blur(9px);
+      mask-image: linear-gradient(to top right, black 0%, transparent 60%);
+      -webkit-mask-image: linear-gradient(to top right, black 0%, transparent 60%);
+    }
+    .banner-thumb-label {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      padding: 16px 7px 5px;
+      background: linear-gradient(transparent, rgba(0,0,0,0.65));
+      font-size: 10px;
+      color: rgba(255,255,255,0.75);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── Logo ──────────────────────────────────────────────────────────────── */
+    .logo-mark {
+      display: flex;
+      gap: 5px;
+      align-items: flex-end;
+      margin-bottom: 12px;
+    }
+    .logo-dot { border-radius: 50%; flex-shrink: 0; }
+
+    .wordmark {
+      margin-bottom: 4px;
+    }
+    .wordmark img {
+      height: 120px;
+      width: auto;
+      display: block;
+      margin: 0 auto;
+    }
+
+    .tagline {
+      font-size: 13px;
+      color: #6A9FD4;
+      margin-bottom: 36px;
+    }
+
+    /* ── Mode cards ────────────────────────────────────────────────────────── */
+    .mode-row {
+      display: flex;
+      gap: 12px;
+      width: 100%;
+    }
+
+    .mode-card {
+      flex: 1;
+      border-radius: 16px;
+      padding: 32px 22px 28px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      position: relative;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.18);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.15),
+        inset 0 -1px 0 rgba(0,0,0,0.2);
+      transition: background 0.2s, border-color 0.2s;
+      text-align: center;
+      -webkit-app-region: no-drag;
+    }
+    .mode-card:hover {
+      background: rgba(255,255,255,0.12);
+      border-color: rgba(255,255,255,0.32);
+    }
+    .drop-zone.loading { opacity: 0.6; pointer-events: none; }
+
+    .trip-mode-card { /* same as single day */ }
+
+    .glass-shine {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 50%;
+      border-radius: 16px 16px 0 0;
+      background: rgba(255,255,255,0.04);
+      pointer-events: none;
+    }
+
+    .mode-icon       { font-size: 30px; color: #5B9EF0; margin-bottom: 2px; }
+    .mode-card-title { font-size: 15px; font-weight: 600; color: #FFFFFF; }
+    .mode-card-desc  { font-size: 12px; color: #6A9FD4; line-height: 1.5; }
+
+    /* ── Filming guide ─────────────────────────────────────────────────────── */
+    .guide-act {
+      display: flex; flex-direction: column; gap: 4px;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+    }
+    .guide-act-num   { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: #3A6090; }
+    .guide-act-title { font-size: 14px; font-weight: 600; color: #FFF; }
+    .guide-act-desc  { font-size: 12px; color: #6A9FD4; line-height: 1.6; margin-top: 4px; }
+
+    /* ── FAQ ─────────────────────────────────────────────────────────────── */
+    .faq-section-label {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+      color: #3A6090; margin-top: 18px; margin-bottom: 4px;
+    }
+    .faq-item { border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .faq-question {
+      font-size: 13px; font-weight: 500; color: #B8D0EE;
+      padding: 11px 0 11px; cursor: pointer;
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
+      user-select: none;
+    }
+    .faq-question:hover { color: #fff; }
+    .faq-chevron { font-size: 12px; color: #3A6090; flex-shrink: 0; transition: transform 0.2s; }
+    .faq-item.open .faq-chevron { transform: rotate(180deg); }
+    .faq-answer {
+      font-size: 12px; color: #6A9FD4; line-height: 1.7;
+      max-height: 0; overflow: hidden; transition: max-height 0.25s ease, padding 0.25s;
+      padding-bottom: 0;
+    }
+    .faq-item.open .faq-answer { max-height: 300px; padding-bottom: 12px; }
+
+    /* ── Source picker (in overlay) ────────────────────────────────────────── */
+    .source-option {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px;
+      border-radius: 12px;
+      cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.04);
+      margin-bottom: 10px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .source-option:hover {
+      background: rgba(255,255,255,0.09);
+      border-color: rgba(255,255,255,0.2);
+    }
+
+    .browse-btn {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #6A9FD4;
+      background: rgba(0,0,0,0.25);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 20px;
+      padding: 5px 18px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.15s, border-color 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    .browse-btn:hover {
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.25);
+    }
+
+    /* ── Reassurance ───────────────────────────────────────────────────────── */
+    /* ── Search ────────────────────────────────────────────────────────────── */
+    .search-section {
+      width: 100%;
+      margin-top: 16px;
+      position: relative;
+    }
+    .search-label {
+      font-size: 11px;
+      color: #3A6090;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+    .search-wrap {
+      position: relative;
+    }
+    .search-icon-el {
+      position: absolute;
+      left: 13px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #3A6090;
+      font-size: 15px;
+      pointer-events: none;
+    }
+    .search-input {
+      width: 100%;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.13);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+      border-radius: 10px;
+      padding: 10px 16px 10px 38px;
+      font-size: 13px;
+      color: #FFFFFF;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+    .search-input::placeholder { color: #3A6090; }
+    .search-input:focus { border-color: rgba(91,158,240,0.5); }
+
+    .search-results {
+      position: fixed;   /* escapes overflow clipping from .inner */
+      background: #0A1828;
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 10px;
+      overflow: hidden;
+      z-index: 999;
+      display: none;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    }
+    .search-results.visible { display: block; }
+
+    .search-result {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      cursor: pointer;
+      border-bottom: 0.5px solid rgba(255,255,255,0.06);
+      transition: background 0.1s;
+    }
+    .search-result:last-child { border-bottom: none; }
+    .search-result:hover { background: rgba(255,255,255,0.06); }
+
+    .result-dot      { width: 7px; height: 7px; border-radius: 50%; background: #1E5FC8; flex-shrink: 0; }
+    .result-dot.misc { background: #3A6090; }
+    .result-name     { font-size: 13px; color: #B8D0EE; flex: 1; min-width: 0;
+                       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .result-count    { font-size: 11px; color: #3A6090; white-space: nowrap; flex-shrink: 0; }
+    .result-arrow    { font-size: 13px; color: #3A6090; flex-shrink: 0; }
+
+    .search-empty {
+      padding: 14px 16px;
+      font-size: 13px;
+      color: #3A6090;
+      text-align: center;
+    }
+
+    .reassurance {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 20px;
+      font-size: 12px;
+      color: #3A6090;
+    }
+
+    /* ── Credits bar ───────────────────────────────────────────────────────── */
+    .credits-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 40px 24px;
+      border-top: 0.5px solid #0D2540;
+      flex-shrink: 0;
+    }
+    .credits-left  { display: flex; align-items: center; gap: 8px; }
+    .credits-pip   { width: 8px; height: 8px; border-radius: 50%; background: #5B9EF0; flex-shrink: 0; }
+    .credits-label { font-size: 12px; color: #3A6090; }
+    .credits-count { font-size: 12px; font-weight: 500; color: #6A9FD4; }
+    .credits-buy   {
+      font-size: 12px; color: #5B9EF0;
+      background: none; border: none; cursor: pointer;
+      padding: 0; font-family: inherit;
+    }
+    .credits-buy:hover { text-decoration: underline; }
+
+    /* ── Settings panel ────────────────────────────────────────────────────── */
+    .settings-overlay {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.5);
+      backdrop-filter: blur(4px);
+      z-index: 100;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    .settings-overlay.open { opacity: 1; pointer-events: all; -webkit-app-region: no-drag; }
+
+    .settings-panel {
+      position: absolute; top: 0; right: 0; bottom: 0;
+      width: 320px;
+      background: #081525;
+      border-left: 0.5px solid rgba(255,255,255,0.1);
+      display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+      z-index: 101;
+    }
+    .settings-overlay.open .settings-panel { transform: translateX(0); }
+
+    .settings-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 20px 16px;
+      border-bottom: 0.5px solid rgba(255,255,255,0.08);
+      flex-shrink: 0;
+    }
+    .settings-title { font-size: 15px; font-weight: 500; color: #FFFFFF; }
+    .settings-close {
+      background: none; border: none; outline: none; color: #3A6090;
+      font-size: 20px; cursor: pointer; padding: 6px; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .settings-close:hover { color: #6A9FD4; }
+    .settings-close:focus { color: #3A6090; }
+
+    .settings-body {
+      flex: 1; overflow-y: auto; padding: 20px;
+      display: flex; flex-direction: column; gap: 24px;
+      scrollbar-width: none;
+    }
+    .settings-body::-webkit-scrollbar { display: none; }
+
+    .setting-group { display: flex; flex-direction: column; gap: 8px; }
+    .setting-label { font-size: 11px; color: #3A6090; letter-spacing: 0.05em; }
+    .setting-input {
+      width: 100%; background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px; padding: 10px 12px;
+      font-size: 13px; color: #FFFFFF; font-family: inherit;
+      outline: none; transition: border-color 0.15s;
+      user-select: text; -webkit-user-select: text;
+    }
+    .setting-input:focus { border-color: rgba(91,158,240,0.5); }
+    .setting-input::placeholder { color: #3A6090; }
+    .setting-sub { font-size: 11px; color: #3A6090; line-height: 1.5; }
+
+    .setting-row {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .setting-row .setting-input { flex: 1; }
+    .setting-btn {
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px; color: #6A9FD4; font-size: 12px;
+      font-family: inherit; padding: 10px 14px; cursor: pointer; white-space: nowrap;
+      transition: background 0.15s;
+    }
+    .setting-btn:hover { background: rgba(255,255,255,0.13); }
+
+    .save-btn {
+      width: 100%; padding: 12px;
+      background: #1E5FC8; border: none; border-radius: 10px;
+      color: #FFFFFF; font-size: 14px; font-weight: 500;
+      font-family: inherit; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .save-btn:hover { background: #D08040; }
+
+    .api-status {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; margin-top: 6px;
+    }
+    .album-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 12px; border-radius: 8px; cursor: pointer;
+      transition: background 0.12s;
+      border: 1px solid transparent;
+    }
+    .album-row:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.1); }
+    .album-name  { font-size: 13px; color: #B8D0EE; }
+    .album-count { font-size: 11px; color: #3A6090; }
+    .album-fallback {
+      padding: 14px; font-size: 12px; color: #3A6090; text-align: center;
+      background: rgba(255,255,255,0.04); border-radius: 8px; line-height: 1.6;
+    }
+    .album-fallback button {
+      margin-top: 10px; font-size: 12px; color: #6A9FD4;
+      background: none; border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 6px; padding: 6px 14px; cursor: pointer; font-family: inherit;
+    }
+
+    .api-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .api-dot.ok  { background: #60C060; }
+    .api-dot.bad { background: #C06060; }
+
+    .pill-group { display: flex; gap: 6px; flex-wrap: wrap; }
+    .pill {
+      background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 20px; color: #6A9FD4; font-size: 12px;
+      font-family: inherit; padding: 6px 14px; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .pill:hover { background: rgba(255,255,255,0.11); }
+    .pill.active {
+      background: rgba(30,95,200,0.25); border-color: rgba(30,95,200,0.6);
+      color: #5B9EF0;
+    }
+
+    .toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 0; cursor: pointer;
+    }
+    .toggle-label { font-size: 13px; color: #C0A080; }
+    .toggle-cb { appearance: none; -webkit-appearance: none; width: 36px; height: 20px;
+      background: rgba(255,255,255,0.1); border-radius: 10px; position: relative;
+      cursor: pointer; transition: background 0.2s; flex-shrink: 0; }
+    .toggle-cb::after { content: ''; position: absolute; width: 16px; height: 16px;
+      border-radius: 50%; background: #fff; top: 2px; left: 2px; transition: left 0.2s; }
+    .toggle-cb:checked { background: #1E5FC8; }
+    .toggle-cb:checked::after { left: 18px; }
+  </style>
+</head>
+<body>
+  <div class="app-window">
+
+    <!-- Inner panel with animated background -->
+    <div class="inner" id="inner">
+      <canvas id="orbs"></canvas>
+
+      <!-- Title bar -->
+      <div class="title-bar">
+        <div class="traffic-lights">
+          <div class="dot dot-red"    onclick="window.electronAPI.windowControl('close')"></div>
+          <div class="dot dot-yellow" onclick="window.electronAPI.windowControl('minimize')"></div>
+          <div class="dot dot-green"  onclick="window.electronAPI.windowControl('maximize')"></div>
+        </div>
+        <span class="app-name">Slice of Life</span>
+        <div style="display:flex;gap:14px;-webkit-app-region:no-drag;">
+          <i class="ti ti-file-text settings-icon" aria-label="Filming guide" onclick="openGuide()" title="How to film"></i>
+          <i class="ti ti-info-circle settings-icon" aria-label="FAQ" onclick="openFaq()" title="FAQ"></i>
+          <i class="ti ti-settings settings-icon" aria-label="Settings" onclick="openSettings()"></i>
+        </div>
+      </div>
+
+      <div class="content">
+
+        <div class="wordmark"><img src="/assets/logo-white.png" alt="Slice of Life"></div>
+        <div class="tagline">Document your day. Watch it back.</div>
+
+        <!-- Mode cards -->
+        <div class="mode-row">
+
+          <div class="mode-card" id="drop-zone" onclick="pickMacFolder('single')">
+            <div class="glass-shine"></div>
+            <i class="ti ti-clock mode-icon"></i>
+            <div class="mode-card-title">Single Day</div>
+            <div class="mode-card-desc">One day of footage — narrated by you, assembled automatically into a Slice.</div>
+          </div>
+
+          <div class="mode-card trip-mode-card" onclick="pickMacFolder('trip')">
+            <div class="glass-shine"></div>
+            <i class="ti ti-map-2 mode-icon"></i>
+            <div class="mode-card-title">Trip</div>
+            <div class="mode-card-desc">Multi-day adventure — auto-chaptered by day into a full story arc.</div>
+          </div>
+
+        </div>
+
+        <!-- Last used folder chip -->
+        <div id="last-folder-chip" onclick="useLastFolder()" style="display:none; align-items:center; gap:8px; cursor:pointer; padding:8px 14px; border-radius:20px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); font-size:12px; color:#6A9FD4; -webkit-app-region:no-drag; transition:background 0.15s;">
+          <i class="ti ti-history" style="font-size:14px;"></i>
+          <span>Last used: <strong id="last-folder-name" style="color:#A8C8F0;"></strong></span>
+          <span style="color:#3A6090; font-size:11px;">→ use again</span>
+        </div>
+
+        <!-- Status / scan result -->
+        <div id="journal-scan" style="display:none;padding:10px 14px;background:rgba(30,95,200,0.08);border:1px solid rgba(30,95,200,0.2);border-radius:10px;font-size:13px;color:#6A9FD4;text-align:center;margin-top:4px;width:100%;"></div>
+
+      </div><!-- /content -->
+
+      <!-- Recent videos banner -->
+      <div class="recent-section" id="recent-section">
+        <div class="banner-track">
+          <div class="banner-items" id="banner-items"></div>
+        </div>
+      </div>
+
+      <!-- Credits bar -->
+      <div class="credits-bar">
+        <div class="credits-left">
+          <div class="credits-pip"></div>
+          <span class="credits-label">Credits</span>
+          <span class="credits-count" id="credits-count">— remaining</span>
+        </div>
+        <button class="credits-buy">Top up</button>
+        <span style="font-size:11px;color:#2A4A6A;">Private by design — only thumbnails are sent for AI analysis, never your originals</span>
+      </div>
+
+    </div><!-- /inner -->
+
+    <!-- Settings overlay — inside app-window so absolute positioning covers it -->
+    <div class="settings-overlay" id="settings-overlay" onclick="closeSettingsOnOverlay(event)">
+    <div class="settings-panel" id="settings-panel">
+      <div class="settings-header">
+        <div class="settings-title">Settings</div>
+        <button class="settings-close" onclick="event.stopPropagation(); closeSettings()"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="settings-body">
+
+        <div class="setting-group">
+          <div class="setting-label">SLICES FOLDER</div>
+          <div class="setting-row">
+            <input type="text" class="setting-input" id="output-folder-input" placeholder="~/Desktop/Slices" readonly>
+            <button class="setting-btn" onclick="pickOutputFolder()">Browse</button>
+          </div>
+          <div class="setting-sub">Where your daily Slices and videos are saved.</div>
+        </div>
+
+        <div class="setting-group">
+          <div class="setting-label">AFTER PROCESSING</div>
+          <label class="toggle-row">
+            <span class="toggle-label">Open journal folder when done</span>
+            <input type="checkbox" class="toggle-cb" id="open-when-done">
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <div class="setting-label">API KEY</div>
+          <div class="setting-sub" style="margin-bottom:6px;">Use your own Anthropic API key instead of credits.</div>
+          <input type="password" class="setting-input" id="api-key-input" placeholder="sk-ant-api03-…" autocomplete="off">
+          <div class="api-status" id="api-status"></div>
+        </div>
+
+        <button class="save-btn" onclick="saveSettings()">Save</button>
+
+        <div class="setting-group" style="margin-top:8px;">
+          <div class="setting-label">SLIDESHOW</div>
+          <button class="setting-btn" style="width:100%" onclick="clearSlideshow()">Clear slideshow history</button>
+          <div class="setting-sub" style="margin-top:6px;">Removes all thumbnails from the home screen.</div>
+        </div>
+
+      </div>
+    </div>
+  </div><!-- /settings-overlay -->
+
+  <!-- FAQ overlay -->
+  <div class="settings-overlay" id="faq-overlay" onclick="closeFaqOnOverlay(event)">
+    <div class="settings-panel" id="faq-panel">
+      <div class="settings-header">
+        <div class="settings-title">FAQ</div>
+        <button class="settings-close" onclick="event.stopPropagation(); closeFaq()"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="settings-body" style="gap:0;">
+
+        <div class="faq-section-label">GETTING STARTED</div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">What kind of footage does this work with?<i class="ti ti-chevron-down faq-chevron"></i></div>
+          <div class="faq-answer">Any video you shoot on your iPhone, Android, DSLR, or drone. The more variety the better — a mix of you talking to camera and b-roll of what's happening around you gives the best results.</div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">Do I need to talk to camera?<i class="ti ti-chevron-down faq-chevron"></i></div>
+          <div class="faq-answer">No — turn on Highlight Reel mode and the app will cut together your best b-roll shots automatically. But if you do talk to camera, even just for 30–60 seconds, your Slice will have a narrative backbone that makes it feel like a real story.</div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">How long should my clips be?<i class="ti ti-chevron-down faq-chevron"></i></div>
+          <div class="faq-answer">Anything works. Clips under 2 seconds are skipped automatically. For narration, 30 seconds to a few minutes is ideal. For b-roll, 5–15 seconds per shot gives the best material to work with.</div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">What file formats are supported?<i class="ti ti-chevron-down faq-chevron"></i></div>
+          <div class="faq-answer">MP4, MOV, M4V, AVI, MKV, MTS, M2TS, and WEBM. If your iPhone, DSLR, or camera shot it, it almost certainly works.</div>
+        </div>
+
+        <div class="faq-section-label">THE OUTPUT</div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">Why did some of my clips get cut out?<i class="ti ti-chevron-down faq-chevron"></i></div>
+          <div class="faq-answer">The app scores every clip for quality — brightness, sharpness, and visual interest. Clips that are too dark, blurry, or very short get filtered out automatically. Use Director's Notes on the configure screen to tell it what to include or skip.</div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">What's the difference between Single Day and Trip?<i class="ti ti-chevron-down faq-chevron"></i></div>
+          <div class="faq-answer">Single Day is for one day of footage — it builds a single narrative arc. Trip is for multi-day adventures — it groups footage by calendar day, builds a story arc across all days, and can add day title cards so viewers know where they are in the journey.</div>
+        </div>
+
+        <div class="faq-section-label">TECHNICAL</div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">Does my footage leave my computer?<i class="ti ti-chevron-down faq-chevron"></i></div>
+          <div class="faq-answer">No. Your video files never leave your machine. The only thing sent to the cloud is a small thumbnail frame from each clip — used to analyse what's in the shot. Your originals stay local at all times.</div>
+        </div>
+
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">Why is it taking so long to render?<i class="ti ti-chevron-down faq-chevron"></i></div>
+          <div class="faq-answer">Render time depends on how much footage you have and its resolution. 4K footage is significantly slower than 1080p. A typical single-day render takes 3–10 minutes. Trip mode takes longer because it processes multiple days.</div>
+        </div>
+
+        <div class="faq-section-label">EDITING</div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">Can I edit the result in Premiere or Final Cut?<i class="ti ti-chevron-down faq-chevron"></i></div>
+          <div class="faq-answer">Yes — every render automatically exports an XML file to your Downloads folder. Open it in Premiere Pro or Final Cut Pro to get a fully laid-out timeline with your original high-quality source clips, ready to refine.</div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">What is the XML export for?<i class="ti ti-chevron-down faq-chevron"></i></div>
+          <div class="faq-answer">It gives editors a head start. Instead of sorting through raw footage yourself, you get a rough cut in your editing software with all clips placed and synced. Tweak from there.</div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">Can I re-render with different settings?<i class="ti ti-chevron-down faq-chevron"></i></div>
+          <div class="faq-answer">Yes. On the results screen after any render, there's a Re-edit button. Change the orientation, caption style, or other settings and re-render in seconds — without waiting for the AI to re-analyse your footage.</div>
+        </div>
+
+        <div class="faq-section-label">ACCOUNT</div>
+
+        <div class="faq-item" style="border-bottom:none;">
+          <div class="faq-question" onclick="toggleFaq(this)">Can I use my own Anthropic API key?<i class="ti ti-chevron-down faq-chevron"></i></div>
+          <div class="faq-answer">Yes. Go to Settings and paste your key in the API Key field. The app will use it for all AI processing.</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Device picker overlay -->
+  <div class="settings-overlay" id="device-overlay" onclick="closeDevicePickerOnOverlay(event)">
+    <div class="settings-panel" id="device-panel">
+      <div class="settings-header">
+        <div class="settings-title">Connected Device</div>
+        <button class="settings-close" onclick="event.stopPropagation(); closeDevicePicker()"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="settings-body" id="device-body">
+        <div style="color:#3A6090;font-size:13px;text-align:center;padding:20px 0;">Scanning for devices…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filming guide overlay -->
+  <div class="settings-overlay" id="guide-overlay" onclick="closeGuideOnOverlay(event)">
+    <div class="settings-panel" id="guide-panel">
+      <div class="settings-header">
+        <div class="settings-title">How to film your day</div>
+        <button class="settings-close" onclick="event.stopPropagation(); closeGuide()"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="settings-body" style="gap:20px;">
+        <div class="guide-act">
+          <div class="guide-act-num">Act 1</div>
+          <div class="guide-act-title">Set the scene</div>
+          <div class="guide-act-desc">Start with a 30–60 second clip talking to camera. Who are you with? Where are you? What's happening today? This becomes your opening narration.</div>
+        </div>
+        <div class="guide-act">
+          <div class="guide-act-num">Act 2</div>
+          <div class="guide-act-title">Capture the moments</div>
+          <div class="guide-act-desc">Let the camera roll on what's actually happening — food, places, people, action. Narrate in the moment as things unfold. Don't overthink it.</div>
+        </div>
+        <div class="guide-act">
+          <div class="guide-act-num">Act 3</div>
+          <div class="guide-act-title">Reflect</div>
+          <div class="guide-act-desc">Before you wrap, talk to camera for 1–2 minutes. What happened? What surprised you? What will you remember? This is the emotional anchor of your Slice.</div>
+        </div>
+        <div style="padding:14px 16px;background:rgba(30,95,200,0.08);border:1px solid rgba(30,95,200,0.2);border-radius:10px;font-size:12px;color:#6A9FD4;line-height:1.6;">
+          <strong style="color:#B8D0EE;">Tip:</strong> Slice of Life detects when you're talking to camera and treats those clips as the backbone of your video. B-roll fills in around them automatically.
+        </div>
+        <div style="padding:14px 16px;background:rgba(200,80,60,0.06);border:1px solid rgba(200,80,60,0.18);border-radius:10px;font-size:12px;color:#6A9FD4;line-height:1.6;">
+          <strong style="color:#E8A898;">Before you start:</strong> Copy your footage to your Mac first. Don't run Slice of Life directly off an SD card or camera — if the connection drops mid-render, your export will fail.
+        </div>
+        <button class="save-btn" onclick="closeGuide()">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Source picker overlay -->
+
+  </div><!-- /app-window -->
+
+<script src="/js/orbs.js"></script>
+  <script src="/js/home.js"></script>
+  <script src="/js/settings.js"></script>
+</body>
+</html>

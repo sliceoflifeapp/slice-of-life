@@ -1,0 +1,100 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*:focus { outline: none; }
+*:focus-visible { outline: 2px solid rgba(91,158,240,0.4); outline-offset: 2px; }
+
+html, body {
+  height: 100%;
+  background: #06111F;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #FFFFFF;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ── Window shell ────────────────────────────────────────────────────────── */
+
+.app-window {
+  background: #06111F;
+  padding: 16px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.title-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  -webkit-app-region: drag;
+  flex-shrink: 0;
+}
+
+.traffic-lights {
+  display: flex;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.dot-red    { background: #FF5F57; }
+.dot-yellow { background: #FEBC2E; }
+.dot-green  { background: #28C840; }
+
+.app-name {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 14px;
+  font-weight: 500;
+  color: #5080C0;
+  pointer-events: none;
+}
+
+/* ── Inner panel (shared by all screens) ─────────────────────────────────── */
+
+.inner {
+  flex: 1;
+  border-radius: 10px;
+  border: 0.5px solid transparent;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: #081525;
+  scrollbar-width: none;
+  -webkit-app-region: drag;
+}
+.inner::-webkit-scrollbar { display: none; }
+
+/* Canvas lives behind all content */
+canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* All direct children of .inner that should sit above the canvas */
+.inner > *:not(canvas) { position: relative; z-index: 1; }
+
+/* ── Interactive controls (no-drag zones) ────────────────────────────────── */
+
+button, a, input, textarea, select,
+.drop-zone, .toggle-switch, .pill, .accuracy-card,
+.settings-icon, .back-btn, .credits-buy, .browse-btn,
+.mode-card, .source-option, .banner-thumb,
+.credits-bar, .recent-section {
+  -webkit-app-region: no-drag;
+}

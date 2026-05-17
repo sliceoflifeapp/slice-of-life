@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Slice of Life — Slice</title>
+  <link rel="stylesheet" href="/icons/tabler-icons.min.css">
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .content {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      flex: 1; padding: 40px; gap: 24px; text-align: center;
+    }
+
+    /* ── Processing ──────────────────────────────────────────────────────────── */
+    .stage-icon  { font-size: 44px; color: #5B9EF0; }
+    .stage-title { font-size: 19px; font-weight: 600; color: #FFF; }
+
+    .progress-track {
+      width: 100%; max-width: 340px; height: 3px;
+      background: rgba(255,255,255,0.07); border-radius: 2px; overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%; background: linear-gradient(90deg,#1E5FC8,#5B9EF0);
+      border-radius: 2px; transition: width 0.6s ease; width: 0%;
+    }
+    @keyframes progress-shimmer {
+      0%   { background-position: -200% center; }
+      100% { background-position: 200% center; }
+    }
+    .progress-fill.working {
+      background: linear-gradient(90deg, #1E5FC8 0%, #5B9EF0 50%, #1E5FC8 100%);
+      background-size: 200% 100%;
+      animation: progress-shimmer 1.8s linear infinite;
+    }
+
+    /* ── Steps ───────────────────────────────────────────────────────────────── */
+    .steps {
+      display: flex; flex-direction: column;
+      width: 100%; max-width: 340px;
+      gap: 0;
+    }
+
+    .step {
+      display: flex; align-items: center; gap: 14px;
+      padding: 11px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      transition: opacity 0.4s;
+      opacity: 0.3;
+    }
+    .step:last-child { border-bottom: none; }
+    .step.done   { opacity: 0.45; }
+    .step.active { opacity: 1; }
+
+    .step-icon {
+      width: 32px; height: 32px; border-radius: 10px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: #3A6090;
+      transition: background 0.4s, color 0.4s, border-color 0.4s;
+    }
+    .step.active .step-icon {
+      background: rgba(91,158,240,0.15);
+      border-color: rgba(91,158,240,0.3);
+      color: #5B9EF0;
+    }
+    .step.done .step-icon {
+      background: rgba(30,95,200,0.12);
+      border-color: rgba(30,95,200,0.2);
+      color: #1E5FC8;
+    }
+
+    .step-text { display: flex; flex-direction: column; gap: 2px; text-align: left; }
+    .step-label {
+      font-size: 13px; font-weight: 500; color: #B8D0EE;
+      transition: color 0.4s;
+    }
+    .step.active .step-label { color: #FFFFFF; }
+    .step.done   .step-label { color: #4A7AB5; }
+    .step-detail {
+      font-size: 11px; color: #3A6090; line-height: 1.4;
+      min-height: 14px; transition: color 0.3s;
+    }
+    .step.active .step-detail { color: #5B9EF0; }
+
+    @keyframes pulse-ring {
+      0%   { box-shadow: 0 0 0 0 rgba(91,158,240,0.35); }
+      70%  { box-shadow: 0 0 0 6px rgba(91,158,240,0); }
+      100% { box-shadow: 0 0 0 0 rgba(91,158,240,0); }
+    }
+    .step.active .step-icon { animation: pulse-ring 1.8s ease-out infinite; }
+
+
+    /* ── Done ────────────────────────────────────────────────────────────────── */
+    .done-area { display: none; flex-direction: column; align-items: center; gap: 0; width: 100%; }
+    .done-area.visible { display: flex; }
+
+    .done-header {
+      width: 100%; display: flex; flex-direction: column; align-items: center;
+      gap: 6px; margin-bottom: 20px;
+    }
+    .done-eyebrow { font-size: 10px; letter-spacing: 0.1em; color: #3A6090; font-weight: 600; }
+    .done-title   { font-size: 22px; font-weight: 700; color: #FFF; }
+    .done-meta    { font-size: 12px; color: #3A6090; }
+
+.done-actions { display: flex; gap: 8px; width: 100%; }
+    .btn-primary {
+      flex: 2; padding: 13px;
+      background: linear-gradient(135deg,#1E5FC8,#1448A0);
+      border: none; border-radius: 12px;
+      color: #FFF; font-size: 14px; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      transition: opacity 0.15s;
+    }
+    .btn-primary:hover { opacity: 0.88; }
+    .btn-secondary {
+      flex: 1; padding: 13px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;
+      color: #6A9FD4; font-size: 13px;
+      cursor: pointer; font-family: inherit;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      transition: background 0.15s;
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.1); }
+    .btn-xml {
+      flex: 1; padding: 13px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;
+      color: #6A9FD4; font-size: 13px;
+      cursor: pointer; font-family: inherit;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      transition: background 0.15s;
+    }
+    .btn-xml:hover { background: rgba(255,255,255,0.1); }
+
+    .done-location {
+      display: flex; align-items: center; gap: 8px;
+      width: 100%; margin-top: 14px;
+      padding: 10px 14px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .done-location:hover { background: rgba(255,255,255,0.06); }
+    .done-location-icon { color: #3A6090; font-size: 14px; flex-shrink: 0; }
+    .done-location-path {
+      flex: 1; font-size: 11px; color: #3A6090;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      text-align: left;
+    }
+    .done-location-change {
+      font-size: 11px; color: #3A6090; flex-shrink: 0;
+      text-decoration: underline;
+    }
+    .done-location:hover .done-location-change { color: #6A9FD4; }
+
+    .done-new {
+      margin-top: 12px; font-size: 12px; color: #3A6090;
+      background: none; border: none; cursor: pointer; font-family: inherit;
+      text-decoration: underline;
+    }
+    .done-new:hover { color: #6A9FD4; }
+
+    /* ── No-aroll ────────────────────────────────────────────────────────────── */
+    .no-aroll-area { display: none; flex-direction: column; align-items: center; gap: 20px; width: 100%; text-align: center; }
+    .no-aroll-area.visible { display: flex; }
+    .no-aroll-icon { font-size: 44px; color: #3A6090; }
+    .no-aroll-title { font-size: 19px; font-weight: 600; color: #FFF; }
+    .no-aroll-sub { font-size: 13px; color: #3A6090; line-height: 1.6; max-width: 300px; }
+    .no-aroll-actions { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 340px; }
+    .btn-highlight {
+      width: 100%; padding: 14px;
+      background: linear-gradient(135deg,#1E5FC8,#1448A0);
+      border: none; border-radius: 12px;
+      color: #FFF; font-size: 14px; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: opacity 0.15s;
+    }
+    .btn-highlight:hover { opacity: 0.88; }
+    .btn-retry {
+      width: 100%; padding: 13px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;
+      color: #6A9FD4; font-size: 13px;
+      cursor: pointer; font-family: inherit;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      transition: background 0.15s;
+    }
+    .btn-retry:hover { background: rgba(255,255,255,0.1); }
+
+    .hlg-tip {
+      display: none; width: 100%; margin-top: 14px;
+      padding: 12px 14px;
+      background: rgba(255,190,60,0.07);
+      border: 1px solid rgba(255,190,60,0.2);
+      border-radius: 10px;
+      gap: 10px; align-items: flex-start;
+    }
+    .hlg-tip.visible { display: flex; }
+    .hlg-tip-icon { color: #C8962A; font-size: 15px; flex-shrink: 0; padding-top: 1px; }
+    .hlg-tip-body { flex: 1; }
+    .hlg-tip-title { font-size: 12px; font-weight: 600; color: #C8A84A; margin-bottom: 3px; }
+    .hlg-tip-text  { font-size: 11px; color: #7A6A40; line-height: 1.5; }
+    .hlg-tip-dismiss {
+      font-size: 11px; color: #6A5A30; background: none; border: none;
+      cursor: pointer; font-family: inherit; flex-shrink: 0; padding: 0;
+      line-height: 1;
+    }
+    .hlg-tip-dismiss:hover { color: #C8A84A; }
+
+    /* ── Re-edit panel ───────────────────────────────────────────────────────── */
+    .reedit-btn {
+      margin-top: 4px;
+      width: 100%;
+      padding: 11px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.09); border-radius: 12px;
+      color: #6A9FD4; font-size: 13px;
+      cursor: pointer; font-family: inherit;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      transition: background 0.15s;
+    }
+    .reedit-btn:hover { background: rgba(255,255,255,0.09); }
+
+    .reedit-panel {
+      display: none; width: 100%;
+      padding: 16px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.09); border-radius: 14px;
+      flex-direction: column; gap: 14px;
+      margin-top: 4px;
+    }
+    .reedit-panel.open { display: flex; }
+    .reedit-panel-title { font-size: 12px; font-weight: 600; color: #B8D0EE; letter-spacing: 0.04em; }
+
+    .reedit-orient {
+      display: flex; gap: 8px;
+    }
+    .reedit-orient-btn {
+      flex: 1; padding: 9px 6px; border-radius: 10px; cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04);
+      color: #3A6090; font-size: 12px; font-weight: 500; font-family: inherit;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .reedit-orient-btn:hover { background: rgba(255,255,255,0.08); color: #FFF; }
+    .reedit-orient-btn.selected {
+      background: rgba(30,95,200,0.2); border-color: rgba(91,158,240,0.5); color: #5B9EF0;
+    }
+
+    .reedit-toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.06); border-radius: 10px;
+      cursor: pointer;
+    }
+    .reedit-toggle-row:hover { background: rgba(255,255,255,0.05); }
+    .reedit-toggle-label { font-size: 12px; color: #B8D0EE; }
+    .reedit-toggle-switch {
+      width: 36px; height: 20px; border-radius: 10px;
+      background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.12);
+      position: relative; transition: background 0.2s; flex-shrink: 0;
+    }
+    .reedit-toggle-switch::after {
+      content: ''; position: absolute;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #3A6090; top: 2px; left: 2px;
+      transition: transform 0.2s, background 0.2s;
+    }
+    .reedit-toggle-row.on .reedit-toggle-switch { background: rgba(30,95,200,0.5); border-color: rgba(91,158,240,0.5); }
+    .reedit-toggle-row.on .reedit-toggle-switch::after { transform: translateX(16px); background: #5B9EF0; }
+
+    .reedit-style-grid {
+      display: grid; grid-template-columns: repeat(4,1fr); gap: 6px;
+    }
+    .reedit-cap-card {
+      border-radius: 8px; border: 1px solid rgba(255,255,255,0.09);
+      background: rgba(255,255,255,0.03); overflow: hidden;
+      cursor: pointer; transition: border-color 0.15s, background 0.15s;
+      font-size: 9px; color: #FFF; padding: 8px 4px; text-align: center;
+    }
+    .reedit-cap-card:hover { background: rgba(255,255,255,0.07); }
+    .reedit-cap-card.selected { border-color: rgba(91,158,240,0.55); background: rgba(30,95,200,0.15); }
+
+    .reedit-render-btn {
+      width: 100%; padding: 12px;
+      background: linear-gradient(135deg,#1E5FC8,#1448A0);
+      border: none; border-radius: 11px;
+      color: #FFF; font-size: 13px; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      transition: opacity 0.15s;
+    }
+    .reedit-render-btn:hover { opacity: 0.88; }
+    .reedit-render-btn:disabled { opacity: 0.4; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <div class="app-window">
+    <div class="title-bar">
+      <div class="traffic-lights">
+        <div class="dot dot-red"    onclick="window.electronAPI.windowControl('close')"></div>
+        <div class="dot dot-yellow" onclick="window.electronAPI.windowControl('minimize')"></div>
+        <div class="dot dot-green"  onclick="window.electronAPI.windowControl('maximize')"></div>
+      </div>
+      <span class="app-name">Slice of Life</span>
+    </div>
+
+    <div class="inner">
+      <canvas id="orbs"></canvas>
+      <div class="content">
+
+        <!-- Processing state -->
+        <div id="processing-state" style="display:flex;flex-direction:column;align-items:center;gap:20px;width:100%;">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+            <img src="/assets/logo-white.png" alt="Slice of Life" style="height:80px;width:auto;opacity:0.9;">
+            <div class="stage-title">Building your Slice…</div>
+          </div>
+          <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+          <div id="resolution-chip" style="display:none; font-size:11px; font-weight:500; color:#3A6090; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:20px; padding:4px 12px; letter-spacing:0.03em;"></div>
+          <div class="steps">
+            <div class="step" id="step-scan">
+              <div class="step-icon"><i class="ti ti-scan"></i></div>
+              <div class="step-text">
+                <div class="step-label">Scanning clips</div>
+                <div class="step-detail" id="detail-scan">Finding your footage</div>
+              </div>
+            </div>
+            <div class="step" id="step-detect">
+              <div class="step-icon"><i class="ti ti-microphone"></i></div>
+              <div class="step-text">
+                <div class="step-label">Analysing &amp; transcribing</div>
+                <div class="step-detail" id="detail-detect">Checking clips for narration</div>
+              </div>
+            </div>
+            <div class="step" id="step-story">
+              <div class="step-icon"><i class="ti ti-writing"></i></div>
+              <div class="step-text">
+                <div class="step-label">Assembling your Slice</div>
+                <div class="step-detail" id="detail-story">Crafting the narrative</div>
+              </div>
+            </div>
+            <div class="step" id="step-render">
+              <div class="step-icon"><i class="ti ti-cut"></i></div>
+              <div class="step-text">
+                <div class="step-label">Rendering sections</div>
+                <div class="step-detail" id="detail-render">Encoding each chapter</div>
+              </div>
+            </div>
+            <div class="step" id="step-video">
+              <div class="step-icon"><i class="ti ti-movie"></i></div>
+              <div class="step-text">
+                <div class="step-label">Assembling video</div>
+                <div class="step-detail" id="detail-video">Joining and exporting</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- No-aroll state -->
+        <div class="no-aroll-area" id="no-aroll-area">
+          <i class="ti ti-microphone-off no-aroll-icon"></i>
+          <div class="no-aroll-title">No narration detected</div>
+          <div class="no-aroll-sub">None of your clips were identified as talking-head narration. What would you like to do?</div>
+          <div class="no-aroll-actions">
+            <button class="btn-highlight" onclick="makeHighlightReel()">
+              <i class="ti ti-stars"></i> Make Highlight Reel
+            </button>
+            <button class="btn-retry" onclick="retryHighSensitivity()">
+              <i class="ti ti-refresh"></i> Try Again (Higher Sensitivity)
+            </button>
+            <button class="done-new" onclick="startNew()" style="margin-top:4px;">← Start over</button>
+          </div>
+        </div>
+
+        <!-- Done state -->
+        <div class="done-area" id="done-area">
+          <div class="done-header">
+            <div class="done-eyebrow">SLICE READY</div>
+            <div class="done-title" id="done-title">Today's Slice</div>
+            <div class="done-meta"  id="done-meta"></div>
+          </div>
+          <div class="done-actions">
+            <button class="btn-primary"   onclick="openVideo()"><i class="ti ti-player-play"></i> Watch</button>
+            <button class="btn-xml"       onclick="exportXML()"><i class="ti ti-brand-adobe"></i> XML</button>
+          </div>
+
+          <div class="done-location" id="done-location" onclick="revealInFinder()">
+            <i class="ti ti-folder done-location-icon"></i>
+            <span class="done-location-path" id="done-location-path">—</span>
+            <span class="done-location-change" onclick="event.stopPropagation(); changeOutputFolder()">Change</span>
+          </div>
+          <!-- HLG / HDR Video tip — shown when clips were recorded in HDR Video mode -->
+          <div class="hlg-tip" id="hlg-tip">
+            <i class="ti ti-bulb hlg-tip-icon"></i>
+            <div class="hlg-tip-body">
+              <div class="hlg-tip-title">HDR footage detected</div>
+              <div class="hlg-tip-text">Colors auto-converted for consistency. Use <strong style="color:#A88A40;">XML</strong> to fine-tune in Premiere or Final Cut.</div>
+            </div>
+            <button class="hlg-tip-dismiss" onclick="dismissHlgTip()">✕</button>
+          </div>
+
+          <button class="reedit-btn" id="reedit-btn" onclick="toggleReeditPanel()" style="display:none;">
+            <i class="ti ti-settings-2"></i> Re-edit
+          </button>
+
+          <!-- Re-edit panel -->
+          <div class="reedit-panel" id="reedit-panel">
+            <div class="reedit-panel-title">RE-RENDER WITH NEW SETTINGS</div>
+
+            <div>
+              <div style="font-size:10px;font-weight:600;letter-spacing:0.08em;color:#3A6090;margin-bottom:8px;">ORIENTATION</div>
+              <div class="reedit-orient">
+                <button class="reedit-orient-btn selected" data-orient="landscape" onclick="selectReeditOrient(this)">Landscape</button>
+                <button class="reedit-orient-btn" data-orient="vertical" onclick="selectReeditOrient(this)">Vertical</button>
+              </div>
+            </div>
+
+            <div class="reedit-toggle-row" id="reedit-captions-toggle" onclick="toggleReeditCaptions()">
+              <span class="reedit-toggle-label">Captions</span>
+              <div class="reedit-toggle-switch"></div>
+            </div>
+
+            <div id="reedit-style-wrap" style="display:none;">
+              <div style="font-size:10px;font-weight:600;letter-spacing:0.08em;color:#3A6090;margin-bottom:8px;">CAPTION STYLE</div>
+              <div class="reedit-style-grid">
+                <div class="reedit-cap-card selected" data-style="clean"        onclick="selectReeditStyle(this)">Montserrat</div>
+                <div class="reedit-cap-card"          data-style="bebas"        onclick="selectReeditStyle(this)">Bebas Neue</div>
+                <div class="reedit-cap-card"          data-style="bigshoulders" onclick="selectReeditStyle(this)">Big Shoulders</div>
+                <div class="reedit-cap-card"          data-style="dancing"      onclick="selectReeditStyle(this)">Dancing Script</div>
+                <div class="reedit-cap-card"          data-style="orbitron"     onclick="selectReeditStyle(this)">Orbitron</div>
+                <div class="reedit-cap-card"          data-style="marker"       onclick="selectReeditStyle(this)">Perm. Marker</div>
+                <div class="reedit-cap-card"          data-style="playwrite"    onclick="selectReeditStyle(this)">Playwrite</div>
+                <div class="reedit-cap-card"          data-style="sekuya"       onclick="selectReeditStyle(this)">Sekuya</div>
+              </div>
+            </div>
+
+            <button class="reedit-render-btn" id="reedit-render-btn" onclick="startReedit()">
+              <i class="ti ti-player-play"></i> Re-render
+            </button>
+          </div>
+
+          <button class="done-new" onclick="startNew()">← Start a new Slice</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/orbs.js"></script>
+  <script>
+    let jobId        = sessionStorage.getItem('journalJobId');
+    let videoPath    = null;
+    let assembly     = null;
+    let pacingParams = null;
+    let xmlPath      = null;
+    let assemblyPath = null; // path to .assembly.json sidecar for re-edit
+    let noArollOpts  = null; // { folderPath, savedOpts } stored when no_aroll fires
+
+    // Re-edit state
+    let reeditOrientation   = 'landscape';
+    let reeditCaptions      = false;
+    let reeditCaptionStyle  = 'clean';
+
+    function toggleReeditPanel() {
+      document.getElementById('reedit-panel').classList.toggle('open');
+    }
+    function selectReeditOrient(el) {
+      document.querySelectorAll('.reedit-orient-btn').forEach(b => b.classList.remove('selected'));
+      el.classList.add('selected');
+      reeditOrientation = el.dataset.orient;
+    }
+    function toggleReeditCaptions() {
+      reeditCaptions = !reeditCaptions;
+      document.getElementById('reedit-captions-toggle').classList.toggle('on', reeditCaptions);
+      document.getElementById('reedit-style-wrap').style.display = reeditCaptions ? 'block' : 'none';
+    }
+    function selectReeditStyle(el) {
+      document.querySelectorAll('.reedit-cap-card').forEach(c => c.classList.remove('selected'));
+      el.classList.add('selected');
+      reeditCaptionStyle = el.dataset.style;
+    }
+
+    async function startReedit() {
+      if (!assemblyPath) return;
+      const btn = document.getElementById('reedit-render-btn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="ti ti-loader-2"></i> Starting…';
+
+      try {
+        const res  = await fetch('/api/journal/reedit', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            assemblyPath,
+            captions:      reeditCaptions,
+            captionStyle:  reeditCaptionStyle,
+            orientation:   reeditOrientation,
+          }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          // Switch back to processing state and poll the new job
+          document.getElementById('done-area').classList.remove('visible');
+          document.getElementById('reedit-panel').classList.remove('open');
+          document.getElementById('processing-state').style.display = 'flex';
+          const fill = document.getElementById('progress-fill');
+          fill.style.width = '4%';
+          fill.classList.add('working');
+          jobId = data.jobId;
+          sessionStorage.setItem('journalJobId', jobId);
+          poll();
+          // Don't re-enable button — we're now polling the new job
+          return;
+        } else throw new Error(data.error || 'Failed to start re-edit');
+      } catch (err) {
+        alert('Re-edit error: ' + err.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ti ti-player-play"></i> Re-render';
+      }
+    }
+
+    const STEPS = [
+      { id: 'step-scan',    detail: 'detail-scan',   threshold: 5  },
+      { id: 'step-detect',  detail: 'detail-detect', threshold: 20 },
+      { id: 'step-story',   detail: 'detail-story',  threshold: 65 },
+      { id: 'step-render',  detail: 'detail-render', threshold: 70 },
+      { id: 'step-video',   detail: 'detail-video',  threshold: 90 },
+    ];
+
+    function updateSteps(pct, message) {
+      let activeIdx = -1;
+      STEPS.forEach((s, i) => {
+        const el  = document.getElementById(s.id);
+        const nxt = STEPS[i + 1]?.threshold ?? 101;
+        if (pct >= nxt) {
+          el.className = 'step done';
+        } else if (pct >= s.threshold) {
+          el.className = 'step active';
+          activeIdx = i;
+        } else {
+          el.className = 'step';
+        }
+      });
+      // Show live server message in the active step's detail line
+      if (activeIdx >= 0 && message) {
+        const detailEl = document.getElementById(STEPS[activeIdx].detail);
+        if (detailEl) detailEl.textContent = message;
+      }
+    }
+
+    async function poll() {
+      if (!jobId) { window.location.href = '/'; return; }
+      try {
+        const data = await fetch(`/api/journal/status/${jobId}`).then(r => r.json());
+        const pct = data.progress || 0;
+        const fill = document.getElementById('progress-fill');
+        fill.style.width = `${Math.max(pct, 4)}%`; // always show a sliver
+        fill.classList.toggle('working', data.status === 'running');
+        updateSteps(pct, data.message);
+
+        // Show resolution chip as soon as it's detected
+        if (data.detectedResolution) {
+          const chip = document.getElementById('resolution-chip');
+          chip.textContent = data.detectedResolution;
+          chip.style.display = 'block';
+        }
+
+        if (data.status === 'done') {
+          videoPath    = data.videoPath;
+          assembly     = data.assembly;
+          pacingParams = data.pacingParams;
+          xmlPath      = data.xmlPath;
+          assemblyPath = data.assemblyPath || null;
+          showDone(data);
+        } else if (data.status === 'no_aroll') {
+          noArollOpts = { folderPath: data.folderPath, savedOpts: data.savedOpts };
+          document.getElementById('processing-state').style.display = 'none';
+          document.getElementById('no-aroll-area').classList.add('visible');
+        } else if (data.status === 'error') {
+          document.getElementById('processing-state').innerHTML =
+            `<div class="stage-title" style="color:#E05C5C;">Something went wrong</div>` +
+            `<div style="font-size:12px;color:#3A6090;max-width:300px;line-height:1.6;">${friendlyError(data.error)}</div>` +
+            `<button class="done-new" onclick="startNew()">← Start over</button>`;
+        } else {
+          setTimeout(poll, 500);
+        }
+      } catch { setTimeout(poll, 1500); }
+    }
+
+    function showDone(data) {
+      document.getElementById('processing-state').style.display = 'none';
+      document.getElementById('done-area').classList.add('visible');
+
+      // Store assemblyPath for re-edit
+      assemblyPath = data.assemblyPath || null;
+      if (assemblyPath) {
+        document.getElementById('reedit-btn').style.display = 'flex';
+      }
+
+      // Show save location
+      if (data.videoPath) {
+        const dir = data.videoPath.replace(/\/[^/]+$/, '');
+        document.getElementById('done-location-path').textContent = dir;
+      }
+
+      const s = data.stats || {};
+      const parts = [];
+      if (s.outputDurationSec) {
+        const m = Math.floor(s.outputDurationSec / 60);
+        const sec = s.outputDurationSec % 60;
+        parts.push(m > 0 ? `${m}m ${sec}s video` : `${sec}s video`);
+      }
+      if (s.arollCount) parts.push(`${s.arollCount} narration clip${s.arollCount === 1 ? '' : 's'}`);
+      if (s.brollCount) parts.push(`${s.brollCount} b-roll`);
+      if (s.totalSec)   parts.push(`${Math.round(s.totalSec / 60)} min recorded`);
+      document.getElementById('done-meta').textContent = parts.join('  ·  ');
+
+      // Show HDR tip if HLG clips were found and user hasn't dismissed it before
+      if ((data.stats?.hlgClipCount || 0) > 0 && !localStorage.getItem('hlgTipDismissed')) {
+        document.getElementById('hlg-tip').classList.add('visible');
+      }
+    }
+
+    async function startNewJob(extraOpts) {
+      if (!noArollOpts) return;
+      const { folderPath, savedOpts } = noArollOpts;
+      const body = {
+        folderPath,
+        targetDuration: savedOpts?.targetDuration,
+        pacingParams:   savedOpts?.pacingParams,
+        description:    savedOpts?.description,
+        captions:       savedOpts?.captions,
+        captionStyle:   savedOpts?.captionStyle,
+        orientation:    savedOpts?.orientation,
+        ...extraOpts,
+      };
+      document.getElementById('no-aroll-area').classList.remove('visible');
+      document.getElementById('processing-state').style.display = 'flex';
+      const fill = document.getElementById('progress-fill');
+      fill.style.width = '4%';
+      fill.classList.add('working');
+
+      try {
+        const res  = await fetch('/api/journal/start', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          jobId = data.jobId;
+          sessionStorage.setItem('journalJobId', jobId);
+          poll();
+        } else throw new Error(data.error || 'Failed to start');
+      } catch (err) {
+        document.getElementById('processing-state').innerHTML =
+          `<div class="stage-title" style="color:#E05C5C;">Something went wrong</div>` +
+          `<div style="font-size:12px;color:#3A6090;max-width:300px;line-height:1.6;">${friendlyError(err.message)}</div>` +
+          `<button class="done-new" onclick="startNew()">← Start over</button>`;
+      }
+    }
+
+    function makeHighlightReel()      { startNewJob({ highlightOnly: true }); }
+    function retryHighSensitivity()   { startNewJob({ highSensitivity: true }); }
+
+    function dismissHlgTip() {
+      document.getElementById('hlg-tip').classList.remove('visible');
+      localStorage.setItem('hlgTipDismissed', '1');
+    }
+
+    function exportXML() {
+      if (xmlPath) window.electronAPI.showInFinder(xmlPath);
+    }
+
+    function openVideo() { if (videoPath) window.electronAPI.openPath(videoPath); }
+
+    function startNew()  { sessionStorage.removeItem('journalJobId'); window.location.href = '/'; }
+
+    function friendlyError(raw) {
+      if (!raw) return 'An unexpected error occurred. Please try again.';
+      const msg = raw.toLowerCase();
+      if (msg.includes('no video files'))
+        return 'No video files were found in that folder. Make sure your footage has been copied to your Mac before starting.';
+      if (msg.includes('no clips'))
+        return 'None of the clips could be processed. Try a different folder or check that your files aren\'t corrupted.';
+      if (msg.includes('no sections rendered'))
+        return 'The render failed before producing any output. This can happen with unsupported video formats. Try re-exporting your clips as MP4 and running again.';
+      if (msg.includes('too small') || msg.includes('corrupt'))
+        return 'The export file came out incomplete — the render likely stalled mid-way. Check that your footage isn\'t still on an SD card or external drive that disconnected.';
+      if (msg.includes('no narration') || msg.includes('no_aroll') || msg.includes('aroll'))
+        return 'No narration clips were detected. Make sure you have at least one clip where you\'re talking directly to camera.';
+      if (msg.includes('enospc') || msg.includes('no space'))
+        return 'Your Mac ran out of disk space during the render. Free up some space and try again.';
+      if (msg.includes('timeout') || msg.includes('timed out'))
+        return 'The render took too long and timed out. Try a shorter duration or fewer clips.';
+      if (msg.includes('ffmpeg') || msg.includes('spawn'))
+        return 'A video processing error occurred. Restart the app and try again.';
+      return 'An unexpected error occurred. Please restart the app and try again.';
+    }
+
+    function revealInFinder() {
+      if (videoPath) window.electronAPI.openPath(videoPath.replace(/\/[^/]+$/, ''));
+    }
+
+    async function changeOutputFolder() {
+      const folder = await window.electronAPI.selectFolder();
+      if (!folder) return;
+      await fetch('/api/settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ outputFolder: folder }),
+      });
+      document.getElementById('done-location-path').textContent =
+        'Saved here next time: ' + folder;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => { startOrbs(); poll(); });
+  </script>
+</body>
+</html>

@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Slice of Life — Configure</title>
+  <link rel="stylesheet" href="/icons/tabler-icons.min.css">
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    /* flex: 1 + height: 0 gives .content a definite height so overflow-y works.
+       -webkit-app-region: no-drag so blank space doesn't eat scroll/click events. */
+    .content {
+      flex: 1;
+      height: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: flex-start;
+      padding: 36px 40px 48px; gap: 24px; text-align: center;
+      overflow-y: auto; overflow-x: hidden;
+      scrollbar-width: none;
+      -webkit-app-region: no-drag;
+    }
+    .content::-webkit-scrollbar { display: none; }
+
+    .icon-wrap {
+      width: 56px; height: 56px; border-radius: 18px;
+      background: rgba(91,158,240,0.12);
+      border: 1px solid rgba(91,158,240,0.25);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 26px; color: #5B9EF0;
+    }
+
+    .cfg-title { font-size: 20px; font-weight: 600; color: #FFF; }
+    .cfg-sub   { font-size: 13px; color: #3A6090; margin-top: 4px; }
+
+    /* ── Duration pills ───────────────────────────────────────────────────── */
+    .dur-section { width: 100%; max-width: 340px; }
+    .dur-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.09em;
+      color: #3A6090; text-align: left; margin-bottom: 10px;
+    }
+    .dur-pills {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+    }
+    .dur-pill {
+      padding: 12px 6px; border-radius: 12px; cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04);
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      transition: background 0.15s, border-color 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    .dur-pill:hover { background: rgba(255,255,255,0.08); }
+    .dur-pill.selected {
+      background: rgba(30,95,200,0.2);
+      border-color: rgba(91,158,240,0.5);
+    }
+    .dur-pill-time {
+      font-size: 15px; font-weight: 600; color: #FFF;
+    }
+    .dur-pill-desc {
+      font-size: 10px; color: #3A6090; line-height: 1.3;
+    }
+    .dur-pill.selected .dur-pill-desc { color: #5B9EF0; }
+    /* ── Day description ─────────────────────────────────────────────────── */
+    .desc-section { width: 100%; max-width: 340px; }
+    .desc-field {
+      position: relative; width: 100%;
+    }
+    .desc-textarea {
+      width: 100%; box-sizing: border-box;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px; padding: 12px 44px 12px 14px;
+      color: #FFF; font-size: 13px; font-family: inherit;
+      resize: none; outline: none; line-height: 1.5;
+      transition: border-color 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    .desc-textarea::placeholder { color: #3A6090; }
+    .desc-textarea:focus { border-color: rgba(91,158,240,0.4); }
+    .mic-btn {
+      position: absolute; right: 10px; top: 10px;
+      width: 28px; height: 28px; border-radius: 8px;
+      background: none; border: none; cursor: pointer;
+      color: #3A6090; font-size: 15px;
+      display: flex; align-items: center; justify-content: center;
+      transition: color 0.15s, background 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    .mic-btn:hover { color: #5B9EF0; background: rgba(91,158,240,0.1); }
+    .mic-btn.listening { color: #E05C5C; background: rgba(224,92,92,0.12); animation: pulse-mic 1s infinite; }
+    @keyframes pulse-mic { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+
+    .dur-rec {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+      color: #5B9EF0; margin-top: 2px;
+    }
+
+    /* ── Footage stats ────────────────────────────────────────────────────── */
+    .footage-stats {
+      display: flex; gap: 20px;
+      padding: 14px 20px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 12px;
+      width: 100%; max-width: 340px;
+    }
+    .stat { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+    .stat-val  { font-size: 18px; font-weight: 600; color: #FFF; }
+    .stat-label{ font-size: 11px; color: #3A6090; }
+
+    /* ── Pacing toggle ───────────────────────────────────────────────────── */
+    .pacing-toggle {
+      display: flex; gap: 8px;
+    }
+    .pacing-btn {
+      flex: 1; padding: 10px 6px; border-radius: 12px; cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04);
+      color: #3A6090; font-size: 13px; font-weight: 500; font-family: inherit;
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    .pacing-btn:hover { background: rgba(255,255,255,0.08); color: #FFF; }
+    .pacing-btn.selected {
+      background: rgba(30,95,200,0.2);
+      border-color: rgba(91,158,240,0.5);
+      color: #5B9EF0;
+    }
+    .pacing-btn-label { font-size: 13px; font-weight: 600; }
+    .pacing-btn-desc  { font-size: 10px; opacity: 0.7; }
+
+    /* ── Toggle row ──────────────────────────────────────────────────────── */
+    .toggle-row {
+      width: 100%; max-width: 340px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 14px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 12px;
+      cursor: pointer;
+      -webkit-app-region: no-drag;
+      transition: background 0.15s;
+    }
+    .toggle-row:hover { background: rgba(255,255,255,0.06); }
+    .toggle-row-left { display: flex; flex-direction: column; gap: 2px; text-align: left; }
+    .toggle-row-label { font-size: 13px; font-weight: 500; color: #B8D0EE; }
+    .toggle-row-sub   { font-size: 11px; color: #3A6090; }
+    /* pill switch */
+    .toggle-switch {
+      width: 40px; height: 22px; border-radius: 11px;
+      background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.12);
+      position: relative; transition: background 0.2s, border-color 0.2s;
+      flex-shrink: 0;
+    }
+    .toggle-switch::after {
+      content: ''; position: absolute;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #3A6090; top: 2px; left: 2px;
+      transition: transform 0.2s, background 0.2s;
+    }
+    .toggle-row.on .toggle-switch {
+      background: rgba(30,95,200,0.5);
+      border-color: rgba(91,158,240,0.5);
+    }
+    .toggle-row.on .toggle-switch::after {
+      transform: translateX(18px);
+      background: #5B9EF0;
+    }
+
+    /* ── Caption style picker ────────────────────────────────────────────── */
+    .caption-styles-wrap {
+      display: none;
+      width: 100%; max-width: 340px;
+    }
+    .caption-styles-wrap.open {
+      display: block;
+    }
+    .caption-styles-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      padding: 2px 0 4px;
+    }
+    .cap-card {
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.09);
+      background: rgba(255,255,255,0.03);
+      overflow: hidden;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    .cap-card:hover { background: rgba(255,255,255,0.07); }
+    .cap-card.selected {
+      border-color: rgba(91,158,240,0.55);
+      background: rgba(30,95,200,0.15);
+    }
+    /* 16:9 preview screen */
+    .cap-screen {
+      width: 100%; aspect-ratio: 16/9;
+      background: #1a2a3a;
+      border-radius: 8px;
+      position: relative; display: flex;
+      align-items: center; justify-content: center;
+      padding: 6%;
+    }
+    .cap-preview-text {
+      font-size: 8px; line-height: 1.3;
+      text-align: center; width: 90%;
+      pointer-events: none;
+    }
+    /* Load actual bundled fonts for accurate previews */
+    @font-face { font-family:'Montserrat';         src:url('/fonts/Montserrat-Regular.ttf'); }
+    @font-face { font-family:'Bebas Neue';         src:url('/fonts/BebasNeue-Regular.ttf'); }
+    @font-face { font-family:'Big Shoulders Stencil'; src:url('/fonts/BigShouldersStencil-Bold.ttf'); font-weight:700; }
+    @font-face { font-family:'Dancing Script';     src:url('/fonts/DancingScript-Bold.ttf'); font-weight:700; }
+    @font-face { font-family:'Orbitron';           src:url('/fonts/Orbitron-Bold.ttf'); font-weight:700; }
+    @font-face { font-family:'Permanent Marker';   src:url('/fonts/PermanentMarker-Regular.ttf'); }
+    @font-face { font-family:'Playwrite GB S';     src:url('/fonts/PlaywriteGBS-Regular.ttf'); }
+    @font-face { font-family:'Sekuya';             src:url('/fonts/Sekuya-Regular.ttf'); }
+
+    /* per-style preview text — using real fonts */
+    .cap-preview-text.style-clean        { color:#fff; font-family:'Montserrat',sans-serif; font-weight:400; }
+    .cap-preview-text.style-bebas        { color:#fff; font-family:'Bebas Neue',sans-serif; text-shadow:0 2px 5px rgba(0,0,0,.7); text-transform:uppercase; font-size:11px; }
+    .cap-preview-text.style-bigshoulders { color:#fff; font-family:'Big Shoulders Stencil',sans-serif; font-weight:700; -webkit-text-stroke:0.4px #000; text-transform:uppercase; font-size:10px; }
+    .cap-preview-text.style-dancing      { color:#fff; font-family:'Dancing Script',cursive; font-weight:700; text-shadow:0 2px 4px rgba(0,0,0,.6); }
+    .cap-preview-text.style-orbitron     { color:#fff; font-family:'Orbitron',sans-serif; font-weight:700; -webkit-text-stroke:0.3px #000; text-transform:uppercase; font-size:7px; }
+    .cap-preview-text.style-marker       { color:#fff; font-family:'Permanent Marker',cursive; text-shadow:0 2px 5px rgba(0,0,0,.7); font-size:9px; }
+    .cap-preview-text.style-playwrite    { color:#fff; font-family:'Playwrite GB S',serif; text-shadow:0 2px 3px rgba(0,0,0,.6); font-size:8px; }
+    .cap-preview-text.style-sekuya       { color:#fff; font-family:'Sekuya',sans-serif; text-shadow:0 2px 4px rgba(0,0,0,.5); font-size:9px; }
+
+    /* ── Build button ─────────────────────────────────────────────────────── */
+    .build-btn {
+      width: 100%; max-width: 340px;
+      padding: 15px;
+      background: linear-gradient(135deg,#1E5FC8,#1448A0);
+      border: none; border-radius: 14px;
+      color: #FFF; font-size: 15px; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: opacity 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    .build-btn:hover  { opacity: 0.88; }
+    .build-btn:disabled { opacity: 0.4; pointer-events: none; }
+
+    .back-link {
+      font-size: 12px; color: #3A6090; background: none; border: none;
+      cursor: pointer; font-family: inherit; text-decoration: underline;
+      -webkit-app-region: no-drag;
+    }
+    .back-link:hover { color: #6A9FD4; }
+
+    .scanning { font-size: 12px; color: #3A6090; }
+  </style>
+</head>
+<body>
+  <div class="app-window">
+    <div class="title-bar">
+      <div class="traffic-lights">
+        <div class="dot dot-red"    onclick="window.electronAPI.windowControl('close')"></div>
+        <div class="dot dot-yellow" onclick="window.electronAPI.windowControl('minimize')"></div>
+        <div class="dot dot-green"  onclick="window.electronAPI.windowControl('maximize')"></div>
+      </div>
+      <span class="app-name">Slice of Life</span>
+    </div>
+
+    <div class="inner">
+      <canvas id="orbs"></canvas>
+      <div class="content">
+
+        <div class="icon-wrap">
+          <i class="ti ti-adjustments-horizontal"></i>
+        </div>
+
+        <div>
+          <div class="cfg-title">Customise your Slice</div>
+          <div class="cfg-sub">Your adventures, cut and ready</div>
+        </div>
+
+        <!-- Footage stats -->
+        <div class="footage-stats" id="footage-stats" style="display:none;">
+          <div class="stat">
+            <div class="stat-val" id="stat-clips">—</div>
+            <div class="stat-label">clips selected</div>
+          </div>
+          <div class="stat">
+            <div class="stat-val" id="stat-duration">—</div>
+            <div class="stat-label">total footage</div>
+          </div>
+        </div>
+        <div class="scanning" id="scanning-msg">Scanning clips…</div>
+
+        <!-- Director's notes -->
+        <div class="desc-section">
+          <div class="dur-label">DIRECTOR'S NOTES <span style="color:#3A6090;font-weight:400;">Optional — guides which shots are included and the overall feel</span></div>
+          <div class="desc-field">
+            <textarea class="desc-textarea" id="day-description" rows="3"
+              placeholder="e.g. 'skip hotel room shots, focus on the beach'"></textarea>
+            <button class="mic-btn" id="mic-btn" onclick="toggleMic()" title="Speak your description">
+              <i class="ti ti-microphone"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Orientation picker -->
+        <div class="dur-section">
+          <div class="dur-label">ORIENTATION</div>
+          <div class="pacing-toggle">
+            <button class="pacing-btn selected" data-orient="landscape" onclick="selectOrientation(this)">
+              <span class="pacing-btn-label">Landscape</span>
+              <span class="pacing-btn-desc">16:9 — standard</span>
+            </button>
+            <button class="pacing-btn" data-orient="vertical" onclick="selectOrientation(this)">
+              <span class="pacing-btn-label">Vertical</span>
+              <span class="pacing-btn-desc">9:16 — social</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Duration picker -->
+        <div class="dur-section">
+          <div class="dur-label">OUTPUT LENGTH</div>
+          <div class="dur-pills" style="margin-bottom:0;">
+            <div class="dur-pill" data-secs="30" onclick="selectDuration(this)">
+              <div class="dur-pill-time">30s</div>
+              <div class="dur-pill-desc">Quick recap</div>
+            </div>
+            <div class="dur-pill" data-secs="60" onclick="selectDuration(this)">
+              <div class="dur-pill-time">1 min</div>
+              <div class="dur-pill-desc">Highlight reel</div>
+            </div>
+            <div class="dur-pill" data-secs="180" onclick="selectDuration(this)">
+              <div class="dur-pill-time">3 min</div>
+              <div class="dur-pill-desc">Full Slice</div>
+            </div>
+            <div class="dur-pill" data-secs="300" onclick="selectDuration(this)">
+              <div class="dur-pill-time">5 min</div>
+              <div class="dur-pill-desc">Extended cut</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pacing -->
+        <div class="dur-section">
+          <div class="dur-label">PACING</div>
+          <div class="pacing-toggle">
+            <button class="pacing-btn" data-pacing="tight" onclick="selectPacing(this)">
+              <span class="pacing-btn-label">Tight</span>
+              <span class="pacing-btn-desc">Quick cuts</span>
+            </button>
+            <button class="pacing-btn selected" data-pacing="balanced" onclick="selectPacing(this)">
+              <span class="pacing-btn-label">Balanced</span>
+              <span class="pacing-btn-desc">Default</span>
+            </button>
+            <button class="pacing-btn" data-pacing="relaxed" onclick="selectPacing(this)">
+              <span class="pacing-btn-label">Relaxed</span>
+              <span class="pacing-btn-desc">Slow burn</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Highlight reel toggle -->
+        <div class="toggle-row" id="highlight-toggle" onclick="toggleHighlight()">
+          <div class="toggle-row-left">
+            <div class="toggle-row-label">Highlight Reel</div>
+            <div class="toggle-row-sub">Skips narration detection, cuts best shots together</div>
+          </div>
+          <div class="toggle-switch"></div>
+        </div>
+
+        <!-- Captions toggle -->
+        <div class="toggle-row" id="captions-toggle" onclick="toggleCaptions()">
+          <div class="toggle-row-left">
+            <div class="toggle-row-label">Captions</div>
+            <div class="toggle-row-sub">Burn subtitles into the video</div>
+          </div>
+          <div class="toggle-switch"></div>
+        </div>
+
+        <!-- Caption style picker (revealed when captions on) -->
+        <div class="caption-styles-wrap" id="caption-styles-wrap">
+          <div class="caption-styles-grid">
+            <div class="cap-card selected" data-style="clean" onclick="selectCaptionStyle(this)">
+              <div class="cap-screen"><span class="cap-preview-text style-clean">Montserrat</span></div>
+            </div>
+            <div class="cap-card" data-style="bebas" onclick="selectCaptionStyle(this)">
+              <div class="cap-screen"><span class="cap-preview-text style-bebas">Bebas Neue</span></div>
+            </div>
+            <div class="cap-card" data-style="bigshoulders" onclick="selectCaptionStyle(this)">
+              <div class="cap-screen"><span class="cap-preview-text style-bigshoulders">Big Shoulders</span></div>
+            </div>
+            <div class="cap-card" data-style="dancing" onclick="selectCaptionStyle(this)">
+              <div class="cap-screen"><span class="cap-preview-text style-dancing">Dancing Script</span></div>
+            </div>
+            <div class="cap-card" data-style="orbitron" onclick="selectCaptionStyle(this)">
+              <div class="cap-screen"><span class="cap-preview-text style-orbitron">Orbitron</span></div>
+            </div>
+            <div class="cap-card" data-style="marker" onclick="selectCaptionStyle(this)">
+              <div class="cap-screen"><span class="cap-preview-text style-marker">Permanent Marker</span></div>
+            </div>
+            <div class="cap-card" data-style="playwrite" onclick="selectCaptionStyle(this)">
+              <div class="cap-screen"><span class="cap-preview-text style-playwrite">Playwrite GB S</span></div>
+            </div>
+            <div class="cap-card" data-style="sekuya" onclick="selectCaptionStyle(this)">
+              <div class="cap-screen"><span class="cap-preview-text style-sekuya">Sekuya</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Trip-only: Day title cards toggle -->
+        <div class="toggle-row" id="day-title-cards-toggle" onclick="toggleDayTitleCards()" style="display:none;">
+          <div class="toggle-row-left">
+            <div class="toggle-row-label">Day title cards</div>
+            <div class="toggle-row-sub">Insert "Day 2 · June 4" cards between days</div>
+          </div>
+          <div class="toggle-switch"></div>
+        </div>
+
+        <button class="build-btn" id="build-btn" onclick="build()" disabled>
+          <i class="ti ti-player-play"></i> Build Slice
+        </button>
+
+        <button class="back-link" onclick="window.location.href='/'">← Start over</button>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/orbs.js"></script>
+  <script>
+    const folderPath = sessionStorage.getItem('configureFolderPath');
+    const mode       = sessionStorage.getItem('configureMode') || 'single';
+
+    let selectedSecs    = null;
+    let recommendedSecs = null;
+    let scannedTotalSec = 0;
+    let scannedClipCount = 0;
+    let selectedPacing  = 'balanced';
+    let captionsEnabled    = false;
+    let selectedCaptionStyle = 'clean';
+    let selectedOrientation  = 'landscape';
+    let dayTitleCardsEnabled = false;
+    let highlightOnly        = false;
+
+    // Show trip-only controls if in trip mode
+    if (mode === 'trip') {
+      const tripToggle = document.getElementById('day-title-cards-toggle');
+      if (tripToggle) tripToggle.style.display = 'flex';
+    }
+
+    function toggleHighlight() {
+      highlightOnly = !highlightOnly;
+      document.getElementById('highlight-toggle').classList.toggle('on', highlightOnly);
+    }
+
+    function toggleDayTitleCards() {
+      dayTitleCardsEnabled = !dayTitleCardsEnabled;
+      document.getElementById('day-title-cards-toggle').classList.toggle('on', dayTitleCardsEnabled);
+    }
+
+    function selectOrientation(el) {
+      document.querySelectorAll('[data-orient]').forEach(b => b.classList.remove('selected'));
+      el.classList.add('selected');
+      selectedOrientation = el.dataset.orient;
+    }
+
+    function toggleCaptions() {
+      captionsEnabled = !captionsEnabled;
+      document.getElementById('captions-toggle').classList.toggle('on', captionsEnabled);
+      document.getElementById('caption-styles-wrap').classList.toggle('open', captionsEnabled);
+    }
+
+    function selectCaptionStyle(el) {
+      document.querySelectorAll('.cap-card').forEach(c => c.classList.remove('selected'));
+      el.classList.add('selected');
+      selectedCaptionStyle = el.dataset.style;
+    }
+
+    // Multipliers applied on top of DUR_PARAMS per pacing setting
+    const PACING_MULT = { tight: 0.65, balanced: 1.0, relaxed: 1.5 };
+
+    function selectPacing(el) {
+      document.querySelectorAll('.pacing-btn').forEach(b => b.classList.remove('selected'));
+      el.classList.add('selected');
+      selectedPacing = el.dataset.pacing;
+      updateRecommendation();
+    }
+
+    function updateRecommendation() {
+      if (!scannedTotalSec) return;
+      const mult = PACING_MULT[selectedPacing] || 1.0;
+
+      // Estimate 1: scale total footage by pacing (long rolling clips get a fair cap)
+      const durationEst = scannedTotalSec * mult;
+
+      // Estimate 2: each clip realistically contributes ~brollCut seconds to the
+      // output regardless of how long the raw clip is. Protects against someone
+      // leaving the camera rolling for 5 minutes on 2 clips.
+      const BASE_BROLL_CUT = 7; // seconds — matches Balanced default
+      const clipEst = scannedClipCount * BASE_BROLL_CUT * mult;
+
+      // Be conservative: recommend based on whichever estimate is smaller
+      const effectiveSec = Math.min(durationEst, clipEst);
+      recommendedSecs = recommendDuration(effectiveSec);
+
+      document.querySelectorAll('.dur-pill').forEach(p => {
+        const secs = parseInt(p.dataset.secs);
+        const recEl = p.querySelector('.dur-rec');
+        if (recEl) recEl.remove();
+        if (secs === recommendedSecs) {
+          const badge = document.createElement('div');
+          badge.className = 'dur-rec';
+          badge.textContent = 'RECOMMENDED';
+          p.appendChild(badge);
+        }
+      });
+    }
+
+    if (!folderPath) window.location.href = '/';
+
+    // Duration → pacing params (sent to pipeline)
+    const DUR_PARAMS = {
+      30:  { label: '30s',  brollCut: 2,   faceDur: 1.5, narrBudget: 0.35 },
+      60:  { label: '1min', brollCut: 3,   faceDur: 2.5, narrBudget: 0.40 },
+      180: { label: '3min', brollCut: 5,   faceDur: 4.0, narrBudget: 0.40 },
+      300: { label: '5min', brollCut: 7,   faceDur: 5.0, narrBudget: 0.40 },
+    };
+
+    function selectDuration(el) {
+      document.querySelectorAll('.dur-pill').forEach(p => p.classList.remove('selected'));
+      el.classList.add('selected');
+      selectedSecs = parseInt(el.dataset.secs);
+      document.getElementById('build-btn').disabled = false;
+    }
+
+    function recommendDuration(totalSec) {
+      if (totalSec < 120)  return 30;
+      if (totalSec < 600)  return 60;
+      if (totalSec < 1800) return 180;
+      return 300;
+    }
+
+    function fmtDuration(secs) {
+      if (secs < 60) return `${Math.round(secs)}s`;
+      const m = Math.floor(secs / 60);
+      const s = Math.round(secs % 60);
+      return s > 0 ? `${m}m ${s}s` : `${m}m`;
+    }
+
+    async function scanClips() {
+      try {
+        const res  = await fetch(`/api/journal/scan?folderPath=${encodeURIComponent(folderPath)}`).then(r => r.json());
+        scannedTotalSec  = res.totalSec  || 0;
+        scannedClipCount = res.clipCount || 0;
+
+        document.getElementById('stat-clips').textContent    = res.clipCount || '—';
+        document.getElementById('stat-duration').textContent = fmtDuration(scannedTotalSec);
+        document.getElementById('footage-stats').style.display = 'flex';
+        document.getElementById('scanning-msg').style.display  = 'none';
+
+        // Compute recommendation for current pacing and badge the pill
+        updateRecommendation();
+
+        // Auto-select recommended
+        const recPill = document.querySelector(`.dur-pill[data-secs="${recommendedSecs}"]`);
+        if (recPill) selectDuration(recPill);
+
+      } catch (err) {
+        document.getElementById('scanning-msg').textContent = 'Could not scan clips: ' + err.message;
+      }
+    }
+
+    // ── Speech-to-text (local Whisper via MediaRecorder) ─────────────────────
+    let mediaRecorder = null;
+    let audioChunks   = [];
+    let listening     = false;
+
+    async function toggleMic() {
+      const btn = document.getElementById('mic-btn');
+
+      if (listening) {
+        // Stop recording → triggers onstop which sends to server
+        mediaRecorder?.stop();
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioChunks  = [];
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) audioChunks.push(e.data);
+        };
+
+        mediaRecorder.onstart = () => {
+          listening = true;
+          btn.classList.add('listening');
+          btn.innerHTML = '<i class="ti ti-microphone-off"></i>';
+        };
+
+        mediaRecorder.onstop = async () => {
+          // Stop all mic tracks
+          stream.getTracks().forEach(t => t.stop());
+          listening = false;
+          btn.classList.remove('listening');
+          btn.innerHTML = '<i class="ti ti-loader-2"></i>';
+          btn.disabled  = true;
+
+          try {
+            const blob    = new Blob(audioChunks, { type: 'audio/webm' });
+            const formData = new FormData();
+            formData.append('audio', blob, 'recording.webm');
+
+            const res  = await fetch('/api/stt', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.text) {
+              const ta = document.getElementById('day-description');
+              ta.value = ta.value ? ta.value.trimEnd() + ' ' + data.text : data.text;
+            }
+          } catch (err) {
+            console.warn('STT transcription failed:', err.message);
+          } finally {
+            btn.innerHTML = '<i class="ti ti-microphone"></i>';
+            btn.disabled  = false;
+          }
+        };
+
+        mediaRecorder.start();
+      } catch (err) {
+        console.warn('Mic access failed:', err.message);
+        btn.classList.add('listening'); // brief red flash
+        setTimeout(() => btn.classList.remove('listening'), 800);
+      }
+    }
+
+    async function build() {
+      const btn         = document.getElementById('build-btn');
+      const description = document.getElementById('day-description').value.trim();
+      btn.disabled = true;
+      btn.innerHTML = '<i class="ti ti-loader-2"></i> Starting…';
+
+      const base = DUR_PARAMS[selectedSecs] || DUR_PARAMS[180];
+      const mult = PACING_MULT[selectedPacing] || 1.0;
+      const params = {
+        ...base,
+        brollCut: +( base.brollCut * mult ).toFixed(1),
+        faceDur:  +( base.faceDur  * mult ).toFixed(1),
+      };
+      const body = { folderPath, targetDuration: selectedSecs, pacingParams: params, description, captions: captionsEnabled, captionStyle: selectedCaptionStyle, orientation: selectedOrientation, dayTitleCards: dayTitleCardsEnabled, highlightOnly };
+
+      try {
+        if (mode === 'trip') {
+          const res  = await fetch('/api/trip/start', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const data = await res.json();
+          if (data.ok) {
+            sessionStorage.setItem('tripJobId', data.jobId);
+            window.location.href = '/trip';
+          } else throw new Error(data.error || 'Unknown error');
+        } else {
+          const res  = await fetch('/api/journal/start', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const data = await res.json();
+          if (data.ok) {
+            sessionStorage.setItem('journalJobId', data.jobId);
+            window.location.href = '/journal';
+          } else throw new Error(data.error || 'Unknown error');
+        }
+      } catch (err) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ti ti-player-play"></i> Build Slice';
+        alert('Error: ' + err.message);
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      startOrbs();
+      scanClips();
+    });
+  </script>
+</body>
+</html>
