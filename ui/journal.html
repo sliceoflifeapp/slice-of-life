@@ -540,6 +540,16 @@
         c.classList.toggle('selected', c.dataset.style === reeditCaptionStyle));
     }
 
+    function switchToProcessing() {
+      document.getElementById('done-area').classList.remove('visible');
+      document.getElementById('reedit-panel').classList.remove('open');
+      document.getElementById('processing-state').style.display = 'flex';
+      const fill = document.getElementById('progress-fill');
+      fill.style.width = '4%';
+      fill.classList.add('working');
+      poll();
+    }
+
     async function startReedit() {
       if (!assemblyPath) return;
       const btn = document.getElementById('reedit-render-btn');
@@ -560,17 +570,28 @@
         });
         const data = await res.json();
         if (data.ok) {
-          // Switch back to processing state and poll the new job
-          document.getElementById('done-area').classList.remove('visible');
-          document.getElementById('reedit-panel').classList.remove('open');
-          document.getElementById('processing-state').style.display = 'flex';
-          const fill = document.getElementById('progress-fill');
-          fill.style.width = '4%';
-          fill.classList.add('working');
           jobId = data.jobId;
           sessionStorage.setItem('journalJobId', jobId);
-          poll();
-          // Don't re-enable button — we're now polling the new job
+
+          // Dim the orb back to normal, then swap UI and start polling
+          if (typeof window.dimOrb === 'function') {
+            window.onDimProgress = function (p) {
+              const eyebrow = document.getElementById('done-eyebrow');
+              const meta    = document.getElementById('done-meta');
+              const r = Math.round(139 - p * (139 - 58));
+              const g = Math.round(191 - p * (191 - 96));
+              const b = Math.round(232 - p * (232 - 144));
+              const col = `rgb(${r},${g},${b})`;
+              if (eyebrow) eyebrow.style.color = col;
+              if (meta)    meta.style.color    = col;
+            };
+            window.dimOrb(() => {
+              window.onDimProgress = null;
+              switchToProcessing();
+            });
+          } else {
+            switchToProcessing();
+          }
           return;
         } else throw new Error(data.error || 'Failed to start re-edit');
       } catch (err) {

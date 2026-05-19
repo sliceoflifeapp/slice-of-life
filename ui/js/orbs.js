@@ -32,18 +32,35 @@ function startOrbs() {
   draw();
   new ResizeObserver(draw).observe(inner);
 
-  window.celebrateOrb = function () {
-    const duration = 3500;
-    const start    = performance.now();
+  let animFrame = null;
 
-    function animate(now) {
+  function runAnimation(fromVal, toVal, duration, onTick, onDone) {
+    if (animFrame) cancelAnimationFrame(animFrame);
+    const start = performance.now();
+    function step(now) {
       const t = Math.min((now - start) / duration, 1);
-      celebProgress = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      const eased = toVal > fromVal
+        ? 1 - Math.pow(1 - t, 3)   // ease-out cubic (bloom)
+        : Math.pow(1 - t, 2);       // ease-in quad  (dim)
+      celebProgress = fromVal + (toVal - fromVal) * eased;
       draw();
-      if (typeof window.onCelebProgress === 'function') window.onCelebProgress(celebProgress);
-      if (t < 1) requestAnimationFrame(animate);
+      if (typeof onTick === 'function') onTick(celebProgress);
+      if (t < 1) {
+        animFrame = requestAnimationFrame(step);
+      } else {
+        celebProgress = toVal;
+        draw();
+        if (typeof onDone === 'function') onDone();
+      }
     }
+    animFrame = requestAnimationFrame(step);
+  }
 
-    requestAnimationFrame(animate);
+  window.celebrateOrb = function () {
+    runAnimation(celebProgress, 1, 3500, window.onCelebProgress);
+  };
+
+  window.dimOrb = function (onDone) {
+    runAnimation(celebProgress, 0, 1200, window.onDimProgress, onDone);
   };
 }
