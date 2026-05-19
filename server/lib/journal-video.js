@@ -161,41 +161,44 @@ function rotFrag(rotation) {
 // High-level: returns the rotation filter fragment for a clip.
 //
 // Rules:
-//   aroll (selfie/narration): use Vision suggestedRotation if available,
-//     otherwise fall back to probe metadata. Front-camera selfies have
-//     reliable metadata and Vision sees upright faces for confirmation.
+//   aroll: Vision suggestedRotation if available, else metadata tag.
 //
-//   broll with explicit rotate TAG (rotFromTag=true): reliable — apply it,
-//     using Vision suggestedRotation if available.
+//   broll with face visible (hasFace=true): Vision suggestedRotation if
+//     available, else metadata tag. Faces have an unambiguous up/down
+//     orientation so Vision is trustworthy.
 //
-//   broll with display matrix only (rotFromTag=false): SKIP rotation entirely.
-//     Display matrix on broll is unreliable — iPhone auto-rotate locks the
-//     orientation before recording starts, so the user may have turned the
-//     phone after the lock committed. Stored pixels are most likely correct.
-//     Vision can't reliably detect orientation on arbitrary content (e.g. a
-//     camera on a table looks the same upside-down), so we don't trust it here.
+//   broll without face (hasFace=false): metadata tag only for rotate-TAG
+//     clips; no rotation for display-matrix clips. Vision is NOT trusted —
+//     object-only content is orientation-ambiguous and Vision often guesses
+//     wrong, overriding correct metadata.
 function clipRotFrag(info, clipType, suggestedRotation, hasFace, src) {
   const tag = require('path').basename(src || '');
-  if (clipType === 'broll' && !info.rotFromTag) {
-    // Display matrix on broll is unreliable (auto-rotate lock artifact).
-    // Only trust Vision's rotation if a person is visible — people have a
-    // clear up/down orientation. Object-only content is ambiguous.
-    if (suggestedRotation != null && hasFace) {
-      console.log(`[rot] ${tag}: broll/matrix → Vision ${suggestedRotation}° (hasFace=true)`);
+  if (clipType === 'aroll') {
+    if (suggestedRotation != null) {
+      console.log(`[rot] ${tag}: aroll → Vision ${suggestedRotation}°`);
       return rotFrag(suggestedRotation);
     }
-    if (suggestedRotation != null)
-      console.log(`[rot] ${tag}: broll/matrix → skip (suggestedRotation=${suggestedRotation}° ignored, hasFace=false)`);
-    else
-      console.log(`[rot] ${tag}: broll/matrix → skip (no Vision rotation, display matrix only)`);
-    return '';
+    console.log(`[rot] ${tag}: aroll → metadata ${info.rotation}°`);
+    return rotFrag(info.rotation);
   }
-  if (suggestedRotation != null) {
-    console.log(`[rot] ${tag}: ${clipType}/${info.rotFromTag ? 'tag' : 'matrix'} → Vision ${suggestedRotation}°`);
+  // B-roll: only trust Vision when a person is visible
+  if (suggestedRotation != null && hasFace) {
+    console.log(`[rot] ${tag}: broll → Vision ${suggestedRotation}° (hasFace=true)`);
     return rotFrag(suggestedRotation);
   }
-  console.log(`[rot] ${tag}: ${clipType}/tag → metadata ${info.rotation}°`);
-  return rotFrag(info.rotation);
+  if (info.rotFromTag) {
+    if (suggestedRotation != null)
+      console.log(`[rot] ${tag}: broll/tag → metadata ${info.rotation}° (Vision ignored, hasFace=false)`);
+    else
+      console.log(`[rot] ${tag}: broll/tag → metadata ${info.rotation}°`);
+    return rotFrag(info.rotation);
+  }
+  // Display matrix only — skip rotation
+  if (suggestedRotation != null)
+    console.log(`[rot] ${tag}: broll/matrix → skip (Vision ignored, hasFace=false)`);
+  else
+    console.log(`[rot] ${tag}: broll/matrix → skip`);
+  return '';
 }
 
 // Blurred-background + centred letterbox/pillarbox.
