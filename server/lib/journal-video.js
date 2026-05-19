@@ -265,20 +265,33 @@ console.log(`[encode] using ${USE_VIDEOTOOLBOX ? 'h264_videotoolbox (hardware)' 
 //   - HLG/PQ clips: tonemapped to bt709 by bgFilter's zscale chain before encoding
 // So we explicitly signal bt709 limited-range in the H.264 SPS/VUI so players
 // (QuickTime, VLC) never guess and over-expand or mis-interpret the range.
-const ENCODE_FLAGS = [
-  ...(USE_VIDEOTOOLBOX
-    ? ['-c:v', 'h264_videotoolbox', '-b:v', '20000k', '-realtime', 'false']
-    : ['-c:v', 'libx264', '-preset', 'fast', '-crf', '23']),
-  '-r', '30',           // force constant 30fps — prevents freeze at VFR section boundaries
-  '-color_range', 'tv',
-  '-colorspace', 'bt709',
-  '-color_primaries', 'bt709',
-  '-color_trc', 'bt709',
-  '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2',
-  '-pix_fmt', 'yuv420p',
-  '-movflags', '+faststart',
-  '-max_muxing_queue_size', '9999',
-];
+//
+// VideoToolbox bitrate scales with pixel count so quality is consistent across
+// resolutions. Uses total pixels so vertical (1080×1920) matches 1080p correctly.
+function vtbBitrate(w, h) {
+  const px = w * h;
+  if (px <= 1280 * 720)   return '8000k';   // 720p
+  if (px <= 1920 * 1080)  return '16000k';  // 1080p / vertical 1080×1920
+  if (px <= 2560 * 1440)  return '25000k';  // 1440p
+  return '40000k';                           // 4K
+}
+
+function encodeFlags(w = OUTPUT_W, h = OUTPUT_H) {
+  return [
+    ...(USE_VIDEOTOOLBOX
+      ? ['-c:v', 'h264_videotoolbox', '-b:v', vtbBitrate(w, h), '-realtime', 'false']
+      : ['-c:v', 'libx264', '-preset', 'fast', '-crf', '23']),
+    '-r', '30',           // force constant 30fps — prevents freeze at VFR section boundaries
+    '-color_range', 'tv',
+    '-colorspace', 'bt709',
+    '-color_primaries', 'bt709',
+    '-color_trc', 'bt709',
+    '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2',
+    '-pix_fmt', 'yuv420p',
+    '-movflags', '+faststart',
+    '-max_muxing_queue_size', '9999',
+  ];
+}
 
 // ── Caption style definitions ─────────────────────────────────────────────────
 // forceStyle: SRT force_style string passed to ffmpeg subtitles filter.
@@ -774,7 +787,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
         ...secArgs,
         '-filter_complex', fp.join(';'),
         '-map', '[secv]', '-map', '[seca]',
-        ...ENCODE_FLAGS, '-y', sectionFile,
+        ...encodeFlags(outW, outH), '-y', sectionFile,
       ], { maxBuffer: 200 * 1024 * 1024, timeout: 300000 });
     } catch (err) {
       console.warn(`[section] narration section ${i} (${path.basename(aroll.path)}) failed: ${err.message}`);
@@ -803,7 +816,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
           '-noautorotate', '-i', br.path,
           '-filter_complex', brFp.join(';'),
           '-map', '[brout]', '-map', '[bra]',
-          ...ENCODE_FLAGS, '-y', brFile,
+          ...encodeFlags(outW, outH), '-y', brFile,
         ], { maxBuffer: 100 * 1024 * 1024, timeout: 120000 });
         overflowFiles.push({ file: brFile, dur: brDur, clip: br });
       } catch (err) {
@@ -939,7 +952,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
       await execFileAsync(ffmpegPath, [
         '-f', 'concat', '-safe', '0', '-i', concatListPath,
         '-r', '30',
-        ...ENCODE_FLAGS, '-y', outPath,
+        ...encodeFlags(outW, outH), '-y', outPath,
       ], { maxBuffer: 200 * 1024 * 1024, timeout: 300000 });
     } else if (!musicOpts?.musicPath && subFilter) {
       // Captions only — re-encode video to burn subtitles, no audio change.
@@ -948,7 +961,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
       await execFileAsync(ffmpegPath, [
         '-f', 'concat', '-safe', '0', '-i', concatListPath,
         '-vf', subFilter, '-r', '30',
-        ...ENCODE_FLAGS, '-y', outPath,
+        ...encodeFlags(outW, outH), '-y', outPath,
       ], { maxBuffer: 200 * 1024 * 1024, timeout: 300000 });
     } else {
       // Music (±captions) — mix audio; burn captions via filter_complex if enabled.
@@ -964,7 +977,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
           '-filter_complex', `${audioFc};[0:v]${subFilter}[vout]`,
           '-map', '[vout]', '-map', '[outa]',
           '-r', '30',
-          ...ENCODE_FLAGS, '-y', outPath,
+          ...encodeFlags(outW, outH), '-y', outPath,
         ], { maxBuffer: 200 * 1024 * 1024, timeout: 300000 });
       } else {
         // Music only — copy video, re-encode audio with mix.
@@ -1080,7 +1093,7 @@ async function buildSequential(assembly, outPath, onProgress, musicOpts, BROLL_C
     finalAudio = '[outa]';
   }
 
-  args.push('-filter_complex', fp.join(';'), '-map', '[outv]', '-map', finalAudio, ...ENCODE_FLAGS, '-metadata:s:v:0', 'rotate=0', '-y', outPath);
+  args.push('-filter_complex', fp.join(';'), '-map', '[outv]', '-map', finalAudio, ...encodeFlags(outW, outH), '-metadata:s:v:0', 'rotate=0', '-y', outPath);
 
   onProgress?.(30);
   await execFileAsync(ffmpegPath, args, { maxBuffer: 500 * 1024 * 1024, timeout: 600000 });
