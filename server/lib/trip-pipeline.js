@@ -125,8 +125,9 @@ async function run(folderPath, options, onProgress, pacingParams) {
 
         if (vision.isTalkingHead) {
           if (highlightOnly) {
-            // Highlight mode: skip talking heads — b-roll only
-            console.log(`[trip-pipeline] highlight: ${require('path').basename(clip.path)}: talking head — skipped`);
+            // Highlight mode: demote to b-roll at reduced score rather than skipping.
+            console.log(`[trip-pipeline] highlight: ${require('path').basename(clip.path)}: talking head → broll (reduced score)`);
+            broll.push({ ...clip, clipType: 'broll', dayIndex: i, vision, brollScore: Math.min(vision.qualityScore, 40) });
             continue;
           }
           const result = await whisper.transcribe(clip.path, clip.duration, directorNotes);

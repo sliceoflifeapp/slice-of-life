@@ -115,8 +115,11 @@ async function run(folderPath, options = {}, onProgress, pacingParams) {
 
       if (vision.isTalkingHead) {
         if (highlightOnly) {
-          // Highlight mode: skip talking heads — b-roll only
-          console.log(`[pipeline] highlight: ${path.basename(clip.path)}: talking head — skipped`);
+          // Highlight mode: demote to b-roll at reduced score rather than
+          // skipping — if the whole folder is face-forward clips, skipping
+          // them all leaves zero footage and crashes the highlight reel.
+          console.log(`[pipeline] highlight: ${path.basename(clip.path)}: talking head → broll (reduced score)`);
+          broll.push({ ...clip, clipType: 'broll', vision, brollScore: Math.min(vision.qualityScore, 40) });
           checked++; continue;
         }
         // Normal mode: confirm with Whisper
