@@ -150,7 +150,7 @@ const USE_VIDEOTOOLBOX = detectVideoToolbox();
 
 const ENCODE_FLAGS = [
   ...(USE_VIDEOTOOLBOX
-    ? ['-c:v', 'h264_videotoolbox', '-b:v', '10000k', '-realtime', 'false']
+    ? ['-c:v', 'h264_videotoolbox', '-b:v', '20000k', '-realtime', 'false']
     : ['-c:v', 'libx264', '-preset', 'fast', '-crf', '23']),
   '-color_range', 'tv', '-colorspace', 'bt709',
   '-color_primaries', 'bt709', '-color_trc', 'bt709',

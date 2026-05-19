@@ -267,7 +267,7 @@ console.log(`[encode] using ${USE_VIDEOTOOLBOX ? 'h264_videotoolbox (hardware)' 
 // (QuickTime, VLC) never guess and over-expand or mis-interpret the range.
 const ENCODE_FLAGS = [
   ...(USE_VIDEOTOOLBOX
-    ? ['-c:v', 'h264_videotoolbox', '-b:v', '10000k', '-realtime', 'false']
+    ? ['-c:v', 'h264_videotoolbox', '-b:v', '20000k', '-realtime', 'false']
     : ['-c:v', 'libx264', '-preset', 'fast', '-crf', '23']),
   '-r', '30',           // force constant 30fps — prevents freeze at VFR section boundaries
   '-color_range', 'tv',

@@ -279,6 +279,14 @@
     .reedit-toggle-row.on .reedit-toggle-switch { background: rgba(30,95,200,0.5); border-color: rgba(91,158,240,0.5); }
     .reedit-toggle-row.on .reedit-toggle-switch::after { transform: translateX(16px); background: #5B9EF0; }
 
+    @font-face { font-family: 'Bebas Neue';         src: url('/fonts/BebasNeue-Regular.ttf'); }
+    @font-face { font-family: 'Big Shoulders Stencil'; src: url('/fonts/BigShouldersStencil-Bold.ttf'); font-weight: 700; }
+    @font-face { font-family: 'Dancing Script';     src: url('/fonts/DancingScript-Bold.ttf'); }
+    @font-face { font-family: 'Orbitron';           src: url('/fonts/Orbitron-Bold.ttf'); font-weight: 700; }
+    @font-face { font-family: 'Permanent Marker';   src: url('/fonts/PermanentMarker-Regular.ttf'); }
+    @font-face { font-family: 'Playwrite GB S';     src: url('/fonts/PlaywriteGBS-Regular.ttf'); }
+    @font-face { font-family: 'Sekuya';             src: url('/fonts/Sekuya-Regular.ttf'); }
+
     .reedit-style-grid {
       display: grid; grid-template-columns: repeat(4,1fr); gap: 6px;
     }
@@ -286,10 +294,18 @@
       border-radius: 8px; border: 1px solid rgba(255,255,255,0.09);
       background: rgba(255,255,255,0.03); overflow: hidden;
       cursor: pointer; transition: border-color 0.15s, background 0.15s;
-      font-size: 9px; color: #FFF; padding: 8px 4px; text-align: center;
+      font-size: 11px; color: #FFF; padding: 8px 4px; text-align: center;
     }
     .reedit-cap-card:hover { background: rgba(255,255,255,0.07); }
     .reedit-cap-card.selected { border-color: rgba(91,158,240,0.55); background: rgba(30,95,200,0.15); }
+
+    .reedit-cap-card[data-style="bebas"]        { font-family: 'Bebas Neue', sans-serif; font-size: 13px; }
+    .reedit-cap-card[data-style="bigshoulders"] { font-family: 'Big Shoulders Stencil', sans-serif; font-size: 12px; font-weight: 700; }
+    .reedit-cap-card[data-style="dancing"]      { font-family: 'Dancing Script', cursive; font-size: 12px; }
+    .reedit-cap-card[data-style="orbitron"]     { font-family: 'Orbitron', sans-serif; font-size: 9px; font-weight: 700; }
+    .reedit-cap-card[data-style="marker"]       { font-family: 'Permanent Marker', cursive; font-size: 11px; }
+    .reedit-cap-card[data-style="playwrite"]    { font-family: 'Playwrite GB S', cursive; font-size: 11px; }
+    .reedit-cap-card[data-style="sekuya"]       { font-family: 'Sekuya', sans-serif; font-size: 11px; }
 
     .reedit-render-btn {
       width: 100%; padding: 12px;
