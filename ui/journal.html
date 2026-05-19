@@ -101,9 +101,9 @@
       width: 100%; display: flex; flex-direction: column; align-items: center;
       gap: 6px; margin-bottom: 20px;
     }
-    .done-eyebrow { font-size: 10px; letter-spacing: 0.1em; color: #3A6090; font-weight: 600; }
+    .done-eyebrow { font-size: 10px; letter-spacing: 0.1em; color: #3A6090; font-weight: 600; transition: color 1.2s ease; }
     .done-title   { font-size: 22px; font-weight: 700; color: #FFF; }
-    .done-meta    { font-size: 12px; color: #3A6090; }
+    .done-meta    { font-size: 12px; color: #3A6090; transition: color 1.2s ease; }
 
 .done-actions { display: flex; gap: 8px; width: 100%; }
     .btn-primary {
@@ -401,7 +401,7 @@
         <!-- Done state -->
         <div class="done-area" id="done-area">
           <div class="done-header">
-            <div class="done-eyebrow">SLICE READY</div>
+            <div class="done-eyebrow" id="done-eyebrow">SLICE READY</div>
             <div class="done-title" id="done-title">Today's Slice</div>
             <div class="done-meta"  id="done-meta"></div>
           </div>
@@ -649,6 +649,22 @@
     function showDone(data) {
       document.getElementById('processing-state').style.display = 'none';
       document.getElementById('done-area').classList.add('visible');
+
+      // Bloom the corner light and brighten eyebrow/meta text as it peaks
+      if (typeof window.celebrateOrb === 'function') {
+        window.onCelebProgress = function (p) {
+          const eyebrow = document.getElementById('done-eyebrow');
+          const meta    = document.getElementById('done-meta');
+          // Interpolate from #3A6090 → #8BBFE8 as progress reaches 1
+          const r = Math.round(58  + p * (139 - 58));
+          const g = Math.round(96  + p * (191 - 96));
+          const b = Math.round(144 + p * (232 - 144));
+          const col = `rgb(${r},${g},${b})`;
+          if (eyebrow) eyebrow.style.color = col;
+          if (meta)    meta.style.color    = col;
+        };
+        window.celebrateOrb();
+      }
 
       // Store assemblyPath for re-edit
       assemblyPath = data.assemblyPath || null;
