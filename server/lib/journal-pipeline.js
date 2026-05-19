@@ -82,7 +82,12 @@ async function run(folderPath, options = {}, onProgress, pacingParams) {
       update(`Analysing clip ${checked + 1} of ${probed.length}…`, pct);
 
       if (clip.duration < TALKING_HEAD_MIN_SEC) {
-        broll.push({ ...clip, clipType: 'broll' });
+        // Too short to be narration — still run Vision for rotation + quality data
+        // so tight-pacing b-roll cuts aren't upside down due to unvalidated tags.
+        const vision = await analyzeClip(clip, description, {});
+        if (vision.qualityScore >= 15) {
+          broll.push({ ...clip, clipType: 'broll', vision, brollScore: vision.qualityScore });
+        }
         checked++; continue;
       }
 

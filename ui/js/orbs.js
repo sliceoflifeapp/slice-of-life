@@ -39,9 +39,10 @@ function startOrbs() {
     const start = performance.now();
     function step(now) {
       const t = Math.min((now - start) / duration, 1);
+      // eased always goes 0→1 so the lerp progresses fromVal→toVal
       const eased = toVal > fromVal
-        ? 1 - Math.pow(1 - t, 3)   // ease-out cubic (bloom)
-        : Math.pow(1 - t, 2);       // ease-in quad  (dim)
+        ? 1 - Math.pow(1 - t, 3)   // ease-out cubic (bloom — fast then slow)
+        : t * (2 - t);              // ease-out quad  (dim  — fast then slow)
       celebProgress = fromVal + (toVal - fromVal) * eased;
       draw();
       if (typeof onTick === 'function') onTick(celebProgress);

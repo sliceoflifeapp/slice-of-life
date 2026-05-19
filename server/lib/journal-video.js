@@ -712,9 +712,9 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
     const brollQ = [...cutaways];
     const isFirst = false; // fade-in disabled
 
-    // Minimum durations — clips shorter than these feel jarring as cuts.
-    const MIN_FACE_SEG  = 1.5; // don't show face for less than 1.5s
-    const MIN_BROLL_SEG = 2.0; // don't cut to broll for less than 2s
+    // Minimum durations — scale down with pacing so tight mode can fit cuts.
+    const MIN_FACE_SEG  = Math.max(0.8, Math.min(1.5, FACE_DUR  * 0.5));
+    const MIN_BROLL_SEG = Math.max(1.0, Math.min(2.0, BROLL_CUT * 0.5));
 
     while (pos < narrDur) {
       const remaining  = narrDur - pos;

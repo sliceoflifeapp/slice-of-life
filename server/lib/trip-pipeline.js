@@ -91,7 +91,15 @@ async function run(folderPath, options, onProgress, pacingParams) {
     // Normal mode:    talking-head candidates confirmed with Whisper.
     for (const clip of dayClips) {
       if (clip.duration < TALKING_HEAD_MIN_SEC) {
-        broll.push({ ...clip, clipType: 'broll', dayIndex: i });
+        // Too short for narration — still run Vision for rotation + quality data.
+        try {
+          const vision = await analyzeClip(clip, directorNotes, {});
+          if (vision.qualityScore >= 15) {
+            broll.push({ ...clip, clipType: 'broll', dayIndex: i, vision, brollScore: vision.qualityScore });
+          }
+        } catch {
+          broll.push({ ...clip, clipType: 'broll', dayIndex: i });
+        }
         continue;
       }
       // Slo-mo and time-lapse are pure b-roll — skip Vision
