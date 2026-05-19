@@ -198,7 +198,7 @@ async function run(folderPath, options, onProgress, pacingParams) {
   // ── 6. Assemble video ────────────────────────────────────────────────────────
   update('Assembling trip video…', 68);
   const cfg        = loadConfig();
-  const outputBase = cfg.outputFolder || path.join(os.homedir(), 'Movies', 'Gather');
+  const outputBase = cfg.outputFolder || path.join(os.homedir(), 'Movies', 'Slice of Life');
   const isVertical = options.orientation === 'vertical';
   const orientSlug = isVertical ? '-vertical' : '';
   const tripLabel  = `Trip-${dayEntries[0][0]}${dayCount > 1 ? `-${dayEntries[dayCount-1][0].slice(5)}` : ''}`;
@@ -292,7 +292,7 @@ async function run(folderPath, options, onProgress, pacingParams) {
   // ── 7. Extract thumbnail ─────────────────────────────────────────────────────
   let thumbPath = null;
   try {
-    const thumbDir = path.join(os.homedir(), '.gather', 'thumb-cache');
+    const thumbDir = path.join(os.homedir(), '.slice-of-life', 'thumb-cache');
     fs.mkdirSync(thumbDir, { recursive: true });
     const thumbFile = path.join(thumbDir, path.basename(videoPath, '.mp4') + '.jpg');
     await execFileAsync(ffmpegPath, [
@@ -338,7 +338,7 @@ async function run(folderPath, options, onProgress, pacingParams) {
 
 function loadConfig() {
   try {
-    return JSON.parse(fs.readFileSync(path.join(os.homedir(), '.gather', 'config.json'), 'utf8'));
+    return JSON.parse(fs.readFileSync(path.join(os.homedir(), '.slice-of-life', 'config.json'), 'utf8'));
   } catch { return {}; }
 }
 

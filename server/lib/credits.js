@@ -2,7 +2,7 @@ const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
 
-const DIR     = path.join(os.homedir(), '.gather');
+const DIR     = path.join(os.homedir(), '.slice-of-life');
 const FILE    = path.join(DIR, 'credits.json');
 const DEFAULT = 500;
 

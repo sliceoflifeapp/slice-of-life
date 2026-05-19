@@ -92,21 +92,79 @@ function fileBlock(clip) {
   };
 }
 
-function clipItem(id, clip, timelineStart, timelineEnd, srcIn, srcOut, seqW, seqH) {
+// Rotation delta for Premiere: what the renderer applied minus what Premiere auto-reads.
+// Premiere auto-reads the QuickTime rotate TAG but NOT the display matrix.
+// Returns null when no filter needed.
+function xmlMotionRotation(clip, clipType) {
+  const rotFromTag   = clip.rotFromTag || false;
+  const metaRot      = clip.rotation   || 0;
+  const premiereAuto = rotFromTag ? metaRot : 0;
+
+  let videoApplied;
+  if (clipType === 'aroll') {
+    videoApplied = clip.vision?.suggestedRotation ?? metaRot;
+  } else if (!rotFromTag) {
+    const hasFace = !!(clip.vision?.hasFace || clip.vision?.isTalkingHead);
+    videoApplied  = (hasFace && clip.vision?.suggestedRotation != null)
+      ? clip.vision.suggestedRotation : 0;
+  } else {
+    videoApplied = clip.vision?.suggestedRotation ?? metaRot;
+  }
+
+  const deltaCW = (videoApplied - premiereAuto + 360) % 360;
+  if (deltaCW === 0) return null;
+  let val = -deltaCW; // Premiere param is CCW-positive
+  if (val <= -180) val += 360;
+  return val;
+}
+
+function motionRotationXml(degrees) {
+  return `<filter>
+						<name>Basic Motion</name>
+						<effectid>basic</effectid>
+						<effectcategory>motion</effectcategory>
+						<effecttype>motion</effecttype>
+						<mediatype>video</mediatype>
+						<parameter>
+							<parameterid>rotation</parameterid>
+							<name>Rotation</name>
+							<value>${degrees}</value>
+						</parameter>
+					</filter>`;
+}
+
+function audioItem(id, clip, timelineStart, timelineEnd, srcIn, srcOut, trackIndex) {
+  const fb      = fileBlock(clip);
+  const fileXml = fb.xml || `<file id="${fb.id}"/>`;
+  const fname   = path.basename(realPath(clip.path));
+  return `
+					<clipitem id="${id}">
+						<name>${escXml(fname)}</name>
+						<rate><timebase>${FPS}</timebase><ntsc>FALSE</ntsc></rate>
+						<start>${timelineStart}</start>
+						<end>${timelineEnd}</end>
+						<in>${srcIn}</in>
+						<out>${srcOut}</out>
+						${fileXml}
+						<sourcetrack>
+							<mediatype>audio</mediatype>
+							<trackindex>${trackIndex}</trackindex>
+						</sourcetrack>
+					</clipitem>`;
+}
+
+function clipItem(id, clip, timelineStart, timelineEnd, srcIn, srcOut, seqW, seqH, clipType) {
   const fb      = fileBlock(clip);
   const rp      = realPath(clip.path);
   const fname   = path.basename(rp);
   const fileXml = fb.xml || `<file id="${fb.id}"/>`;
 
-  // Premiere reads rotation from the QuickTime 'rotate' metadata tag on its own.
-  // Providing correct stored dimensions in the file block is all that's needed.
-  // We do NOT add a motion rotation filter here because Premiere double-rotates
-  // when both the file tag and a manual rotation value are present.
-
-  // Add a comment on HLG clips so editors know colour needs attention.
   const colorNote = clip.needsColorConversion
     ? `\n\t\t\t\t\t<!-- HDR/HLG source -- colours baked in MP4; adjust Lumetri colour space in Premiere -->`
     : '';
+
+  const rotDeg    = clipType ? xmlMotionRotation(clip, clipType) : null;
+  const rotFilter = rotDeg != null ? motionRotationXml(rotDeg) : '';
 
   return `
 					<clipitem id="${id}">${colorNote}
@@ -116,11 +174,101 @@ function clipItem(id, clip, timelineStart, timelineEnd, srcIn, srcOut, seqW, seq
 						<end>${timelineEnd}</end>
 						<in>${srcIn}</in>
 						<out>${srcOut}</out>
-						${fileXml}
+						${fileXml}${rotFilter}
 					</clipitem>`;
 }
 
-function generate({ assembly, title, date, pacingParams, orientation, dayBoundaries }) {
+// Build V1/V2 items directly from the renderer's resolved segment list.
+// This guarantees the XML matches the MP4 exactly — no re-computation of cut logic.
+function buildFromTimeline(resolvedTimeline) {
+  const v1 = [];
+  const v2 = [];
+  let clipId = 1;
+  const dayFirstFrame = new Map();
+
+  // Each narration section = consecutive entries sharing the same aroll clip path.
+  // V1 gets one item per section spanning [narr_start, narr_end] with correct srcIn/srcOut.
+  // V2 gets one item per broll entry at its exact timeline position.
+  // Overflow brolls (after narr end) go on V2 in the gap — V1 has nothing there.
+
+  let i = 0;
+  while (i < resolvedTimeline.length) {
+    const entry = resolvedTimeline[i];
+
+    if (entry.clipType === 'aroll') {
+      const arollPath    = entry.clip.path;
+      const sectionStart = entry.timelineSec;
+      let   narrEnd      = entry.timelineSec + entry.dur; // updated as we find more aroll segs
+      let   firstSrcIn   = entry.srcIn;
+      let   lastSrcOut   = entry.srcOut;
+
+      const di = entry.clip.dayIndex ?? 0;
+      if (!dayFirstFrame.has(di)) dayFirstFrame.set(di, f(sectionStart));
+
+      // Scan ahead: collect all entries for this section
+      let j = i + 1;
+      while (j < resolvedTimeline.length) {
+        const e = resolvedTimeline[j];
+        // Stop when a different aroll clip starts (new section)
+        if (e.clipType === 'aroll' && e.clip.path !== arollPath) break;
+        if (e.clipType === 'aroll') {
+          lastSrcOut = e.srcOut;
+          narrEnd    = e.timelineSec + e.dur;
+        }
+        j++;
+      }
+
+      // V1: narration clip spans only the narration time (not overflow broll after it)
+      v1.push({
+        id:   `clipitem-v1-${clipId++}`,
+        clip: entry.clip,
+        clipType: 'aroll',
+        timelineStart: f(sectionStart),
+        timelineEnd:   f(narrEnd),
+        srcIn:  f(firstSrcIn),
+        srcOut: f(lastSrcOut),
+      });
+
+      // V2: all broll entries in this section range (cutaways + overflow)
+      for (let k = i + 1; k < j; k++) {
+        const e = resolvedTimeline[k];
+        if (e.clipType !== 'aroll') {
+          const di2 = e.clip.dayIndex ?? 0;
+          if (!dayFirstFrame.has(di2)) dayFirstFrame.set(di2, f(e.timelineSec));
+          v2.push({
+            id:   `clipitem-v2-${clipId++}`,
+            clip: e.clip,
+            clipType: 'broll',
+            timelineStart: f(e.timelineSec),
+            timelineEnd:   f(e.timelineSec + e.dur),
+            srcIn:  f(e.srcIn),
+            srcOut: f(e.srcOut),
+          });
+        }
+      }
+
+      i = j;
+    } else {
+      // Broll-only entry (highlight reel or broll before any aroll)
+      const di = entry.clip.dayIndex ?? 0;
+      if (!dayFirstFrame.has(di)) dayFirstFrame.set(di, f(entry.timelineSec));
+      v2.push({
+        id:   `clipitem-v2-${clipId++}`,
+        clip: entry.clip,
+        clipType: 'broll',
+        timelineStart: f(entry.timelineSec),
+        timelineEnd:   f(entry.timelineSec + entry.dur),
+        srcIn:  f(entry.srcIn),
+        srcOut: f(entry.srcOut),
+      });
+      i++;
+    }
+  }
+
+  return { v1, v2, dayFirstFrame };
+}
+
+function generate({ assembly, resolvedTimeline, title, date, pacingParams, orientation, dayBoundaries }) {
   fileRegistry.clear();
   fileCounter = 1;
 
@@ -137,124 +285,86 @@ function generate({ assembly, title, date, pacingParams, orientation, dayBoundar
   const seqH = isVertical ? 1920 : detH;
 
   let clipId = 1;
-  const v1 = []; // narration items
-  const v2 = []; // broll items
+  let v1, v2, dayFirstFrame;
 
-  // Map dayIndex → first timeline frame where that day's first aroll starts (for markers)
-  const dayFirstFrame = new Map();
+  if (resolvedTimeline && resolvedTimeline.length > 0) {
+    // Use the renderer's actual segment list — guaranteed to match the MP4.
+    ({ v1, v2, dayFirstFrame } = buildFromTimeline(resolvedTimeline));
+  } else {
+    // Fallback: re-compute from assembly (for old sidecars without resolvedTimeline).
+    v1 = [];
+    v2 = [];
+    dayFirstFrame = new Map();
 
-  if (arollClips.length > 0) {
-    // Timestamp-based broll matching (mirrors buildInterleaved)
-    const sectionMap = arollClips.map(aroll => ({ aroll, brolls: [] }));
-    for (const br of brollClips) {
-      const brTime = br.filledAt || 0;
-      let bestIdx = 0, bestDist = Infinity;
-      for (let i = 0; i < arollClips.length; i++) {
-        const dist = Math.abs((arollClips[i].filledAt || 0) - brTime);
-        if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+    if (arollClips.length > 0) {
+      const sectionMap = arollClips.map(aroll => ({ aroll, brolls: [] }));
+      for (const br of brollClips) {
+        const brTime = br.filledAt || 0;
+        let bestIdx = 0, bestDist = Infinity;
+        for (let i = 0; i < arollClips.length; i++) {
+          const dist = Math.abs((arollClips[i].filledAt || 0) - brTime);
+          if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+        }
+        sectionMap[bestIdx].brolls.push(br);
       }
-      sectionMap[bestIdx].brolls.push(br);
-    }
-    for (const sec of sectionMap) {
-      sec.brolls.sort((a, b) => (a.filledAt || 0) - (b.filledAt || 0));
-    }
-
-    // Slot count mirrors buildInterleaved
-    const slotsPerAroll = arollClips.map(c => {
-      const dur = c.duration || 0;
-      return Math.max(1, Math.floor(Math.max(0, dur - FACE_DUR) / (FACE_DUR + BROLL_CUT)) + 1);
-    });
-
-    // Overflow cap mirrors buildInterleaved
-    for (let i = 0; i < sectionMap.length; i++) {
-      sectionMap[i].brolls = sectionMap[i].brolls.slice(0, slotsPerAroll[i] * 2);
-    }
-
-    let timelinePos = 0; // in frames
-
-    for (let ai = 0; ai < sectionMap.length; ai++) {
-      const { aroll, brolls }  = sectionMap[ai];
-      const narrDur    = aroll.duration || 30; // seconds
-      const narrFrames = f(narrDur);
-      const cutaways   = brolls.slice(0, slotsPerAroll[ai]);
-      const overflow   = brolls.slice(slotsPerAroll[ai]);
-
-      // Track first frame position per day
-      const di = aroll.dayIndex ?? 0;
-      if (!dayFirstFrame.has(di)) {
-        dayFirstFrame.set(di, timelinePos);
+      for (const sec of sectionMap) {
+        sec.brolls.sort((a, b) => (a.filledAt || 0) - (b.filledAt || 0));
       }
 
-      // V1: full narration clip at current timeline position
-      v1.push({
-        id: `clipitem-v1-${clipId++}`,
-        clip: aroll,
-        timelineStart: timelinePos,
-        timelineEnd:   timelinePos + narrFrames,
-        srcIn: 0, srcOut: narrFrames,
+      const slotsPerAroll = arollClips.map(c => {
+        const dur = c.duration || 0;
+        return Math.max(1, Math.floor(Math.max(0, dur - FACE_DUR) / (FACE_DUR + BROLL_CUT)) + 1);
       });
 
-      // V2: cutaway broll -- placed OVER the narration (editor can use as-is)
-      let brollQ = [...cutaways];
-      let posF   = timelinePos;
-      let posSec = 0;
+      for (let i = 0; i < sectionMap.length; i++) {
+        sectionMap[i].brolls = sectionMap[i].brolls.slice(0, slotsPerAroll[i] * 2);
+      }
 
-      while (posSec < narrDur && brollQ.length > 0) {
-        const faceEndSec = Math.min(posSec + FACE_DUR, narrDur);
-        posF   += f(faceEndSec - posSec);
-        posSec  = faceEndSec;
+      let timelinePos = 0;
+      for (let ai = 0; ai < sectionMap.length; ai++) {
+        const { aroll, brolls } = sectionMap[ai];
+        const narrDur    = aroll.duration || 30;
+        const narrFrames = f(narrDur);
+        const cutaways   = brolls.slice(0, slotsPerAroll[ai]);
+        const overflow   = brolls.slice(slotsPerAroll[ai]);
 
-        if (posSec < narrDur) {
-          const br        = brollQ.shift();
-          const cutDurSec = Math.min(BROLL_CUT, narrDur - posSec);
-          const cutFrames = f(cutDurSec);
-          v2.push({
-            id: `clipitem-v2-cut-${clipId++}`,
-            clip: br,
-            timelineStart: posF,
-            timelineEnd:   posF + cutFrames,
-            srcIn: 0, srcOut: cutFrames,
-          });
-          posF   += cutFrames;
-          posSec += cutDurSec;
+        const di = aroll.dayIndex ?? 0;
+        if (!dayFirstFrame.has(di)) dayFirstFrame.set(di, timelinePos);
+
+        v1.push({ id: `clipitem-v1-${clipId++}`, clip: aroll, timelineStart: timelinePos, timelineEnd: timelinePos + narrFrames, srcIn: 0, srcOut: narrFrames });
+
+        let brollQ = [...cutaways];
+        let posF = timelinePos, posSec = 0;
+        while (posSec < narrDur && brollQ.length > 0) {
+          const faceEndSec = Math.min(posSec + FACE_DUR, narrDur);
+          posF += f(faceEndSec - posSec);
+          posSec = faceEndSec;
+          if (posSec < narrDur) {
+            const br = brollQ.shift();
+            const cutDurSec = Math.min(BROLL_CUT, narrDur - posSec);
+            const cutFrames = f(cutDurSec);
+            v2.push({ id: `clipitem-v2-cut-${clipId++}`, clip: br, timelineStart: posF, timelineEnd: posF + cutFrames, srcIn: 0, srcOut: cutFrames });
+            posF += cutFrames; posSec += cutDurSec;
+          }
+        }
+        timelinePos += narrFrames;
+        for (const br of overflow) {
+          const brDur = Math.min(BROLL_CUT, br.duration || BROLL_CUT);
+          const brFrames = f(brDur);
+          v2.push({ id: `clipitem-v2-ovf-${clipId++}`, clip: br, timelineStart: timelinePos, timelineEnd: timelinePos + brFrames, srcIn: 0, srcOut: brFrames });
+          timelinePos += brFrames;
         }
       }
-
-      // Advance past the narration section
-      timelinePos += narrFrames;
-
-      // V2: overflow broll plays sequentially after narration
-      for (const br of overflow) {
-        const brDur    = Math.min(BROLL_CUT, br.duration || BROLL_CUT);
-        const brFrames = f(brDur);
-        v2.push({
-          id: `clipitem-v2-ovf-${clipId++}`,
-          clip: br,
-          timelineStart: timelinePos,
-          timelineEnd:   timelinePos + brFrames,
-          srcIn: 0, srcOut: brFrames,
-        });
-        timelinePos += brFrames;
+    } else {
+      let t = 0;
+      for (const clip of assembly.filter(c => c.clipType !== 'aroll')) {
+        const dur = Math.min(BROLL_CUT, clip.duration || BROLL_CUT);
+        const frames = f(dur);
+        const di = clip.dayIndex ?? 0;
+        if (!dayFirstFrame.has(di)) dayFirstFrame.set(di, t);
+        v2.push({ id: `clipitem-v2-${clipId++}`, clip, timelineStart: t, timelineEnd: t + frames, srcIn: 0, srcOut: frames });
+        t += frames;
       }
-    }
-  } else {
-    // No narration -- sequential broll on V2
-    let t = 0;
-    // Use full assembly order for broll-only timelines so day boundaries are correct
-    const seqClips = assembly.filter(c => c.clipType !== 'aroll');
-    for (const clip of seqClips) {
-      const dur    = Math.min(BROLL_CUT, clip.duration || BROLL_CUT);
-      const frames = f(dur);
-      // Track first frame per day for markers
-      const di = clip.dayIndex ?? 0;
-      if (!dayFirstFrame.has(di)) dayFirstFrame.set(di, t);
-      v2.push({
-        id: `clipitem-v2-${clipId++}`,
-        clip,
-        timelineStart: t, timelineEnd: t + frames,
-        srcIn: 0, srcOut: frames,
-      });
-      t += frames;
     }
   }
 
@@ -263,8 +373,10 @@ function generate({ assembly, title, date, pacingParams, orientation, dayBoundar
     v2.length ? v2[v2.length - 1].timelineEnd : 0,
   );
 
-  const v1xml = v1.map(e => clipItem(e.id, e.clip, e.timelineStart, e.timelineEnd, e.srcIn, e.srcOut, seqW, seqH)).join('');
-  const v2xml = v2.map(e => clipItem(e.id, e.clip, e.timelineStart, e.timelineEnd, e.srcIn, e.srcOut, seqW, seqH)).join('');
+  const v1xml = v1.map(e => clipItem(e.id, e.clip, e.timelineStart, e.timelineEnd, e.srcIn, e.srcOut, seqW, seqH, e.clipType || 'aroll')).join('');
+  const v2xml = v2.map(e => clipItem(e.id, e.clip, e.timelineStart, e.timelineEnd, e.srcIn, e.srcOut, seqW, seqH, e.clipType || 'broll')).join('');
+  const a1xml = v1.map((e, i) => audioItem(`clipitem-a1-${i+1}`, e.clip, e.timelineStart, e.timelineEnd, e.srcIn, e.srcOut, 1)).join('');
+  const a2xml = v2.map((e, i) => audioItem(`clipitem-a2-${i+1}`, e.clip, e.timelineStart, e.timelineEnd, e.srcIn, e.srcOut, 1)).join('');
 
   const seqName = escXml(title || `Slice of Life -- ${date || new Date().toISOString().slice(0, 10)}`);
 
@@ -308,7 +420,10 @@ function generate({ assembly, title, date, pacingParams, orientation, dayBoundar
 				</track>
 			</video>
 			<audio>
-				<track/>
+				<track>${a1xml}
+				</track>
+				<track>${a2xml}
+				</track>
 			</audio>
 		</media>
 	</sequence>

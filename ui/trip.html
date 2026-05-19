@@ -234,7 +234,8 @@
     let jobId     = sessionStorage.getItem('tripJobId');
     let videoPath = null;
     let textPath  = null;
-    let assembly  = null;
+    let assembly    = null;
+    let orientation = 'landscape';
 
     const STEPS = [
       { id: 'step-scan',  detail: 'detail-scan',  threshold: 10 },
@@ -277,7 +278,8 @@
         if (data.status === 'done') {
           videoPath = data.videoPath;
           textPath  = data.textPath;
-          assembly  = data.assembly;
+          assembly    = data.assembly;
+          orientation = data.orientation || 'landscape';
           showDone(data);
         } else if (data.status === 'error') {
           document.getElementById('stage-title') && (document.querySelector('.stage-title').textContent = 'Something went wrong');
@@ -291,6 +293,7 @@
     function showDone(data) {
       document.getElementById('processing-state').style.display = 'none';
       document.getElementById('done-area').classList.add('visible');
+      if (window.celebrateOrb) window.celebrateOrb();
 
       const days = data.dayCount || '?';
       document.getElementById('done-title').textContent = `${days}-Day Trip`;
@@ -326,7 +329,7 @@
       try {
         const res  = await fetch('/api/export/fcpxml', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ assembly, title: document.getElementById('done-title').textContent }),
+          body: JSON.stringify({ assembly, title: document.getElementById('done-title').textContent, orientation }),
         });
         const data = await res.json();
         if (data.ok) window.electronAPI.openPath(data.filePath);

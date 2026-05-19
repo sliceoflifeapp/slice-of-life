@@ -191,5 +191,5 @@ function sendErrorReport(errorMsg, session) {
 
   const subject = encodeURIComponent('Slice of Life Error Report');
   const bodyEnc = encodeURIComponent(body);
-  window.electronAPI.openPath(`mailto:hello@gathermemories.app?subject=${subject}&body=${bodyEnc}`);
+  window.electronAPI.openPath(`mailto:sliceoflifetech@gmail.com?subject=${subject}&body=${bodyEnc}`);
 }

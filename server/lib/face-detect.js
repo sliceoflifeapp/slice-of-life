@@ -20,7 +20,7 @@ const execFileAsync = promisify(execFile);
 let _client = null;
 function getClient() {
   if (_client) return _client;
-  const cfgPath = path.join(os.homedir(), '.gather', 'config.json');
+  const cfgPath = path.join(os.homedir(), '.slice-of-life', 'config.json');
   let cfg = {};
   try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); } catch {}
   const key = cfg.anthropicApiKey || process.env.ANTHROPIC_API_KEY;

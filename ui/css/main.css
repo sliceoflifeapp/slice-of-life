@@ -1,3 +1,10 @@
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/fonts/Montserrat-Regular.ttf');
+  font-weight: 400;
+  font-style: normal;
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 *:focus { outline: none; }
 *:focus-visible { outline: 2px solid rgba(91,158,240,0.4); outline-offset: 2px; }
@@ -5,7 +12,7 @@
 html, body {
   height: 100%;
   background: #06111F;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Montserrat', system-ui, -apple-system, sans-serif;
   color: #FFFFFF;
   overflow: hidden;
   user-select: none;
@@ -73,6 +80,7 @@ html, body {
   background: #081525;
   scrollbar-width: none;
   -webkit-app-region: drag;
+  zoom: 1.1;
 }
 .inner::-webkit-scrollbar { display: none; }
 

@@ -16,9 +16,9 @@ function getWhisperBin() {
 function getModelPath() {
   const base   = path.dirname(require.resolve('nodejs-whisper/package.json'));
   const models = path.join(base, 'cpp', 'whisper.cpp', 'models');
-  // Prefer base.en (more accurate) if downloaded, fall back to tiny.en
-  const preferred = path.join(models, 'ggml-base.en.bin');
-  const fallback  = path.join(models, 'ggml-tiny.en.bin');
+  // tiny.en is ~5× faster than base.en with ~95% accuracy — better for realtime use
+  const preferred = path.join(models, 'ggml-tiny.en.bin');
+  const fallback  = path.join(models, 'ggml-base.en.bin');
   return fs.existsSync(preferred) ? preferred : fallback;
 }
 
@@ -26,7 +26,7 @@ function getModelPath() {
 let _anthropicClient = null;
 function getClient() {
   if (_anthropicClient) return _anthropicClient;
-  const cfgPath = path.join(os.homedir(), '.gather', 'config.json');
+  const cfgPath = path.join(os.homedir(), '.slice-of-life', 'config.json');
   let cfg = {};
   try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); } catch {}
   const key = cfg.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
@@ -70,6 +70,40 @@ async function descriptionMatch(transcriptText, description) {
   } catch {
     return null;
   }
+}
+
+// Find the contiguous window of `maxDuration` seconds with the highest word
+// density. Used to cap long narration clips to their most talkative section.
+// Returns { windowStart, windowEnd } in clip-time seconds, or null if segments
+// have no usable timing.
+function findDenseWindow(segments, maxDuration) {
+  const timed = segments.filter(s => s.end > 0);
+  if (!timed.length) return null;
+
+  let bestStart = timed[0].start;
+  let bestEnd   = Math.min(timed[0].start + maxDuration, timed[timed.length - 1].end + 0.5);
+  let bestWords = 0;
+
+  for (let i = 0; i < timed.length; i++) {
+    const wStart = timed[i].start;
+    const wEnd   = wStart + maxDuration;
+    let words = 0;
+    for (const seg of timed) {
+      if (seg.start >= wStart && seg.end <= wEnd) {
+        words += seg.text.split(/\s+/).filter(Boolean).length;
+      }
+    }
+    if (words > bestWords) {
+      bestWords = words;
+      bestStart = wStart;
+      bestEnd   = Math.min(wEnd, timed[timed.length - 1].end + 0.5);
+    }
+  }
+
+  return {
+    windowStart: Math.max(0, bestStart - 0.3),
+    windowEnd:   bestEnd,
+  };
 }
 
 // Transcribe a video file. Returns { text, segments, wordCount, isTalkingHead }
@@ -165,4 +199,4 @@ async function transcribe(videoPath, clipDurationSec, description) {
   }
 }
 
-module.exports = { transcribe };
+module.exports = { transcribe, findDenseWindow, getWhisperBin, getModelPath };

@@ -146,18 +146,24 @@
       gap: 10px;
       cursor: pointer;
       position: relative;
-      background: rgba(255,255,255,0.07);
-      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(50, 110, 225, 0.2);
+      border: 1px solid rgba(120, 185, 255, 0.28);
       box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.15),
-        inset 0 -1px 0 rgba(0,0,0,0.2);
-      transition: background 0.2s, border-color 0.2s;
+        inset 0 1px 0 rgba(255,255,255,0.18),
+        inset 0 -1px 0 rgba(0,0,0,0.18),
+        0 8px 28px rgba(30, 80, 200, 0.2);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
       text-align: center;
       -webkit-app-region: no-drag;
     }
     .mode-card:hover {
-      background: rgba(255,255,255,0.12);
-      border-color: rgba(255,255,255,0.32);
+      background: rgba(50, 110, 225, 0.34);
+      border-color: rgba(120, 185, 255, 0.48);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.22),
+        inset 0 -1px 0 rgba(0,0,0,0.18),
+        0 10px 32px rgba(30, 80, 200, 0.35);
     }
     .drop-zone.loading { opacity: 0.6; pointer-events: none; }
 
@@ -173,7 +179,7 @@
     }
 
     .mode-icon       { font-size: 30px; color: #5B9EF0; margin-bottom: 2px; }
-    .mode-card-title { font-size: 15px; font-weight: 600; color: #FFFFFF; }
+    .mode-card-title { font-size: 15px; font-weight: 700; color: #FFFFFF; text-transform: uppercase; letter-spacing: 0.06em; }
     .mode-card-desc  { font-size: 12px; color: #6A9FD4; line-height: 1.5; }
 
     /* ── Filming guide ─────────────────────────────────────────────────────── */
@@ -185,7 +191,7 @@
       border-radius: 12px;
     }
     .guide-act-num   { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: #3A6090; }
-    .guide-act-title { font-size: 14px; font-weight: 600; color: #FFF; }
+    .guide-act-title { font-size: 14px; font-weight: 700; color: #FFF; text-transform: uppercase; letter-spacing: 0.06em; }
     .guide-act-desc  { font-size: 12px; color: #6A9FD4; line-height: 1.6; margin-top: 4px; }
 
     /* ── FAQ ─────────────────────────────────────────────────────────────── */
@@ -385,7 +391,7 @@
       border-bottom: 0.5px solid rgba(255,255,255,0.08);
       flex-shrink: 0;
     }
-    .settings-title { font-size: 15px; font-weight: 500; color: #FFFFFF; }
+    .settings-title { font-size: 15px; font-weight: 700; color: #FFFFFF; text-transform: uppercase; letter-spacing: 0.06em; }
     .settings-close {
       background: none; border: none; outline: none; color: #3A6090;
       font-size: 20px; cursor: pointer; padding: 6px; line-height: 1;
@@ -429,12 +435,20 @@
 
     .save-btn {
       width: 100%; padding: 12px;
-      background: #1E5FC8; border: none; border-radius: 10px;
+      background: rgba(50, 110, 225, 0.52);
+      border: 1px solid rgba(120, 185, 255, 0.38);
+      border-radius: 10px;
+      box-shadow: 0 1px 0 rgba(255,255,255,0.22) inset, 0 -1px 0 rgba(0,0,0,0.15) inset, 0 8px 28px rgba(30, 80, 200, 0.35);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
       color: #FFFFFF; font-size: 14px; font-weight: 500;
       font-family: inherit; cursor: pointer;
-      transition: background 0.15s;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
     }
-    .save-btn:hover { background: #D08040; }
+    .save-btn:hover {
+      background: rgba(30, 95, 200, 0.42);
+      border-color: rgba(91, 158, 240, 0.38);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.14) inset, 0 10px 28px rgba(20, 60, 160, 0.4);
+    }
 
     .api-status {
       display: flex; align-items: center; gap: 6px;
@@ -536,6 +550,11 @@
 
         </div>
 
+        <!-- Offline mode notice (shown when no internet or no API key) -->
+        <div id="offline-notice" style="display:none;width:100%;max-width:420px;padding:10px 14px;background:rgba(192,160,80,0.10);border:1px solid rgba(192,160,80,0.30);border-radius:10px;font-size:12px;color:#C0A080;text-align:center;line-height:1.5;margin-top:12px;">
+          <strong>Offline mode</strong> — AI clip analysis is unavailable. Slice of Life will use audio heuristics to select narration clips. Results may be less precise than usual.
+        </div>
+
         <!-- Last used folder chip -->
         <div id="last-folder-chip" onclick="useLastFolder()" style="display:none; align-items:center; gap:8px; cursor:pointer; padding:8px 14px; border-radius:20px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); font-size:12px; color:#6A9FD4; -webkit-app-region:no-drag; transition:background 0.15s;">
           <i class="ti ti-history" style="font-size:14px;"></i>
@@ -587,27 +606,19 @@
         </div>
 
         <div class="setting-group">
-          <div class="setting-label">AFTER PROCESSING</div>
-          <label class="toggle-row">
-            <span class="toggle-label">Open journal folder when done</span>
-            <input type="checkbox" class="toggle-cb" id="open-when-done">
-          </label>
-        </div>
-
-        <div class="setting-group">
           <div class="setting-label">API KEY</div>
           <div class="setting-sub" style="margin-bottom:6px;">Use your own Anthropic API key instead of credits.</div>
           <input type="password" class="setting-input" id="api-key-input" placeholder="sk-ant-api03-…" autocomplete="off">
           <div class="api-status" id="api-status"></div>
         </div>
 
-        <button class="save-btn" onclick="saveSettings()">Save</button>
-
         <div class="setting-group" style="margin-top:8px;">
           <div class="setting-label">SLIDESHOW</div>
           <button class="setting-btn" style="width:100%" onclick="clearSlideshow()">Clear slideshow history</button>
           <div class="setting-sub" style="margin-top:6px;">Removes all thumbnails from the home screen.</div>
         </div>
+
+        <button class="save-btn" onclick="saveSettings()">Save</button>
 
       </div>
     </div>
@@ -653,7 +664,7 @@
 
         <div class="faq-item">
           <div class="faq-question" onclick="toggleFaq(this)">What's the difference between Single Day and Trip?<i class="ti ti-chevron-down faq-chevron"></i></div>
-          <div class="faq-answer">Single Day is for one day of footage — it builds a single narrative arc. Trip is for multi-day adventures — it groups footage by calendar day, builds a story arc across all days, and can add day title cards so viewers know where they are in the journey.</div>
+          <div class="faq-answer">Single Day is for one day of footage — it builds a single narrative arc. Trip is for multi-day adventures — it groups footage by calendar day and builds a story arc across all days.</div>
         </div>
 
         <div class="faq-section-label">TECHNICAL</div>

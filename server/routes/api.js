@@ -9,11 +9,20 @@ const analytics = require('../lib/analytics');
 
 router.get('/settings', (req, res) => {
   const cfg = loadConfig();
-  res.json({
-    hasOwnApiKey: !!cfg.anthropicApiKey,
-    hasDevKey:    !!process.env.ANTHROPIC_API_KEY,
-    outputFolder: cfg.outputFolder || path.join(os.homedir(), 'Desktop', 'Journals'),
-    openWhenDone: cfg.openWhenDone !== false,
+  const hasKey = !!(cfg.anthropicApiKey || process.env.ANTHROPIC_API_KEY);
+  const dns = require('dns');
+  const checkOnline = () => new Promise(resolve => {
+    if (!hasKey) return resolve(true);
+    dns.lookup('api.anthropic.com', err => resolve(!err));
+  });
+  checkOnline().then(isOnline => {
+    res.json({
+      hasOwnApiKey: !!cfg.anthropicApiKey,
+      hasDevKey:    !!process.env.ANTHROPIC_API_KEY,
+      outputFolder: cfg.outputFolder || path.join(os.homedir(), 'Desktop', 'Journals'),
+      openWhenDone: cfg.openWhenDone !== false,
+      isOnline,
+    });
   });
 });
 
@@ -112,7 +121,8 @@ router.post('/journal/start', (req, res) => {
   }, pacingParams).then(result => {
     const name    = path.basename(path.dirname(result.videoPath));
     const xmlPath = autoExportXML(result, name, pacingParams, pipelineOpts.orientation);
-    journalJobs.set(jobId, { status: 'done', progress: 100, message: 'Done!', ...result, xmlPath, assemblyPath: result.assemblyPath || null });
+    const renderOpts = { captions: pipelineOpts.captions, captionStyle: pipelineOpts.captionStyle, orientation: pipelineOpts.orientation, pacingParams };
+    journalJobs.set(jobId, { status: 'done', progress: 100, message: 'Done!', ...result, xmlPath, assemblyPath: result.assemblyPath || null, renderOpts });
     recordExport(result.videoPath, name, result.assembly, result.thumbPath);
     analytics.track('render_completed', {
       mode: 'single',
@@ -592,7 +602,7 @@ function recordExport(videoPath, name, assembly, thumbPath) {
 // Returns a jobId that /api/journal/status/:jobId can track.
 
 router.post('/journal/reedit', (req, res) => {
-  const { assemblyPath, captions, captionStyle, orientation } = req.body;
+  const { assemblyPath, captions, captionStyle, orientation, pacingParams } = req.body;
   if (!assemblyPath) return res.status(400).json({ error: 'assemblyPath required' });
 
   let sidecar;
@@ -629,7 +639,8 @@ router.post('/journal/reedit', (req, res) => {
     const msg = typeof prog === 'object' && prog.message ? prog.message : 'Re-rendering…';
     const current = journalJobs.get(jobId) || {};
     journalJobs.set(jobId, { ...current, status: 'running', progress: Math.round((pct / 100) * 95), message: msg });
-  }, null, null, captionsOpts, { vertical: isVertical }).then(async () => {
+  }, null, pacingParams || null, captionsOpts, { vertical: isVertical }).then(async (renderResult) => {
+    const resolvedTimeline = renderResult?.resolvedTimeline || null;
     const MIN_OUTPUT_BYTES = 500 * 1024;
     let size = 0;
     try { size = fs.statSync(videoOut).size; } catch {}
@@ -653,7 +664,7 @@ router.post('/journal/reedit', (req, res) => {
     const newAssemblyPath = videoOut.replace(/\.mp4$/, '.assembly.json');
     try {
       fs.writeFileSync(newAssemblyPath, JSON.stringify({
-        version: 1, videoPath: videoOut, assembly,
+        version: 1, videoPath: videoOut, assembly, resolvedTimeline,
         opts: { captions: captions || false, captionStyle: captionStyle || 'clean', orientation: orientation || 'landscape' },
         createdAt: new Date().toISOString(),
       }, null, 2));
@@ -662,10 +673,12 @@ router.post('/journal/reedit', (req, res) => {
     const name = path.basename(dir);
     recordExport(videoOut, name, assembly, thumbPath);
 
+    const xmlPath = autoExportXML({ assembly, resolvedTimeline, videoPath: videoOut }, name, pacingParams, orientation);
+    const renderOpts = { captions: captions || false, captionStyle: captionStyle || 'clean', orientation: orientation || 'landscape', pacingParams: pacingParams || null };
     journalJobs.set(jobId, {
       status: 'done', progress: 100, message: 'Done!',
       videoPath: videoOut, thumbPath, assemblyPath: newAssemblyPath,
-      outDir: dir, assembly,
+      outDir: dir, assembly, xmlPath, renderOpts,
     });
   }).catch(err => {
     journalJobs.set(jobId, { status: 'error', progress: 0, message: err.message, error: err.message });
@@ -675,7 +688,7 @@ router.post('/journal/reedit', (req, res) => {
 function autoExportXML(result, title, pacingParams, orientation, dayBoundaries) {
   try {
     const fcpxml  = require('../lib/fcpxml');
-    const xml     = fcpxml.generate({ assembly: result.assembly, title, pacingParams, orientation, dayBoundaries });
+    const xml     = fcpxml.generate({ assembly: result.assembly, resolvedTimeline: result.resolvedTimeline || null, title, pacingParams, orientation, dayBoundaries });
     const now     = new Date();
     const hhmm    = `${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
     const outName = `${(title || 'Slice of Life').replace(/[^a-z0-9 _-]/gi, '_')}_${hhmm}.xml`;
@@ -726,7 +739,7 @@ router.post('/stt', (req, res) => {
         ], { timeout: 30000 });
 
         // Run Whisper
-        await execFileAsync(getWhisperBin(), [
+        const whisperResult = await execFileAsync(getWhisperBin(), [
           '-m', getModelPath(),
           '-f', tmpWav,
           '--output-txt',
@@ -735,9 +748,15 @@ router.post('/stt', (req, res) => {
           '--no-timestamps',
           '--threads', '4',
         ], { maxBuffer: 5 * 1024 * 1024, timeout: 60000 });
+        console.log('[stt] whisper stdout:', whisperResult.stdout?.slice(0, 300));
+        console.log('[stt] whisper stderr:', whisperResult.stderr?.slice(0, 300));
 
+        const txtFile = outBase + '.txt';
+        const txtExists = fs.existsSync(txtFile);
+        console.log('[stt] output file exists:', txtExists, txtFile);
         let text = '';
-        try { text = fs.readFileSync(outBase + '.txt', 'utf8').trim(); } catch {}
+        try { text = fs.readFileSync(txtFile, 'utf8').trim(); } catch (e) { console.warn('[stt] read failed:', e.message); }
+        console.log('[stt] transcribed text:', JSON.stringify(text));
         res.json({ text });
       } catch (err) {
         console.warn('[stt] error:', err.message);

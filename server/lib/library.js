@@ -10,7 +10,7 @@ const ffmpegPath    = require('ffmpeg-static');
 const execFileAsync = promisify(execFile);
 const tagger = require('./tagger');
 
-const JSON_INDEX = path.join(os.homedir(), '.gather', 'index.json');
+const JSON_INDEX = path.join(os.homedir(), '.slice-of-life', 'index.json');
 
 function readJsonIndex() {
   try { return JSON.parse(fs.readFileSync(JSON_INDEX, 'utf8')); }
@@ -30,7 +30,7 @@ function buildIndex() {
   const base = organizedPath();
   if (!fs.existsSync(base)) return [];
 
-  // Load visual descriptions from ~/.gather/index.json
+  // Load visual descriptions from ~/.slice-of-life/index.json
   const descByPath = new Map(readJsonIndex().map(e => [e.path, e.description]));
 
   const events = [];
@@ -237,7 +237,7 @@ async function thumbnail(folderPath) {
   if (!src) return null;
 
   const srcPath = path.join(folderPath, src);
-  const tmp     = path.join(os.tmpdir(), `gather-lib-${Date.now()}.jpg`);
+  const tmp     = path.join(os.tmpdir(), `sol-lib-${Date.now()}.jpg`);
   try {
     const args = video
       ? ['-ss', '2', '-i', srcPath, '-vf', 'scale=320:-1', '-vframes', '1', '-q:v', '5', '-y', tmp]

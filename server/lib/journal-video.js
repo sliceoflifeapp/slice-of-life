@@ -679,6 +679,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
       const faceDur    = faceEnd - pos;
 
       segs.push({
+        clip: aroll,
         path: aroll.path,
         startInSrc: narrTrimStart + pos,
         dur: faceDur,
@@ -699,7 +700,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
           const cutEnd    = Math.min(pos + BROLL_CUT, brollMax, pos + brClipDur);
 
           if (cutEnd - pos >= MIN_BROLL_SEG) {
-            segs.push({ path: br.path, startInSrc: 0, dur: cutEnd - pos, fadeIn: false });
+            segs.push({ clip: br, path: br.path, startInSrc: 0, dur: cutEnd - pos, fadeIn: false });
             pos = cutEnd;
           } else {
             brollQ.unshift(br); // too short — put back, skip this iteration
@@ -789,18 +790,18 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
           '-map', '[brout]', '-map', '[bra]',
           ...ENCODE_FLAGS, '-y', brFile,
         ], { maxBuffer: 100 * 1024 * 1024, timeout: 120000 });
-        overflowFiles.push({ file: brFile, dur: brDur });
+        overflowFiles.push({ file: brFile, dur: brDur, clip: br });
       } catch (err) {
         console.warn(`[section] overflow broll ${path.basename(br.path)} failed: ${err.message}`);
       }
     }
 
-    return { narrFile: sectionFile, narrDur, overflowFiles };
+    return { narrFile: sectionFile, narrDur, overflowFiles, segs };
   }
 
   // Run sections concurrently with a limit of 3 — safe on most Macs without
   // overwhelming the CPU/thermal budget. Results array preserves order.
-  const CONCURRENCY = 3;
+  const CONCURRENCY = 1;
   const sectionResults = new Array(sectionMap.length).fill(null);
 
   try {
@@ -819,8 +820,23 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
     const sectionFiles = [];
     const arollTimeRanges = [];
     const captionSections = []; // { clip, timelineStart } for SRT generation
+    const resolvedTimeline = []; // exact segment list for XML export
     let timeOffset = 0;
     let renderedSections = 0;
+
+    // Strip clip to only fields fcpxml.js needs — transcript/vision arrays are large
+    // and serializing them repeatedly into resolvedTimeline bloats the sidecar JSON.
+    const slimClip = c => ({
+      path: c.path, rotation: c.rotation, rotFromTag: c.rotFromTag,
+      storedW: c.storedW, storedH: c.storedH,
+      needsColorConversion: c.needsColorConversion || false,
+      dayIndex: c.dayIndex ?? 0,
+      vision: c.vision ? {
+        suggestedRotation: c.vision.suggestedRotation ?? null,
+        hasFace: c.vision.hasFace || false,
+        isTalkingHead: c.vision.isTalkingHead || false,
+      } : null,
+    });
 
     for (let i = 0; i < sectionResults.length; i++) {
       const result = sectionResults[i];
@@ -829,9 +845,34 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
       sectionFiles.push({ file: result.narrFile, dur: result.narrDur, isAroll: true });
       arollTimeRanges.push({ start: timeOffset, end: timeOffset + result.narrDur });
       captionSections.push({ clip: sectionMap[i].aroll, timelineStart: timeOffset });
-      timeOffset += result.narrDur;
+
+      // Collect exact rendered segments for XML generator
+      for (const seg of (result.segs || [])) {
+        resolvedTimeline.push({
+          clip: slimClip(seg.clip),
+          clipType: seg.clip === sectionMap[i].aroll ? 'aroll' : 'broll',
+          srcIn:  seg.startInSrc,
+          srcOut: seg.startInSrc + seg.dur,
+          dur:    seg.dur,
+          timelineSec: timeOffset,
+        });
+        timeOffset += seg.dur;
+      }
+
+      // Reset timeOffset to narr section start + narrDur for overflow alignment
+      const sectionNarrEnd = arollTimeRanges[arollTimeRanges.length - 1].end;
+      timeOffset = sectionNarrEnd;
+
       for (const ovf of result.overflowFiles) {
         sectionFiles.push({ file: ovf.file, dur: ovf.dur, isAroll: false });
+        if (ovf.clip) {
+          resolvedTimeline.push({
+            clip: slimClip(ovf.clip),
+            clipType: 'broll',
+            srcIn: 0, srcOut: ovf.dur, dur: ovf.dur,
+            timelineSec: timeOffset,
+          });
+        }
         timeOffset += ovf.dur;
       }
     }
@@ -926,6 +967,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
     }
 
     onProgress?.(95);
+    return { resolvedTimeline };
   } finally {
     // Clean up all temp files — always, even on error.
     // Walk sectionResults (not the inner sectionFiles which is out of scope here).

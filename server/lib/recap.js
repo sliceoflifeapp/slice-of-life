@@ -27,7 +27,8 @@ function scoreFile(filePath) {
 
   // Read AI sidecar scores if available
   try {
-    const sidecar = JSON.parse(fs.readFileSync(filePath + '.gather.json', 'utf8'));
+    const sidecarPath = fs.existsSync(filePath + '.slice-of-life.json') ? filePath + '.slice-of-life.json' : filePath + '.gather.json';
+    const sidecar = JSON.parse(fs.readFileSync(sidecarPath, 'utf8'));
     // recapWorthy is the strongest signal
     if (sidecar.recapWorthy === false) return -10;
     score += (sidecar.people  ?? 0.5) * 4;   // people = highest weight
@@ -36,7 +37,7 @@ function scoreFile(filePath) {
   } catch {
     // No sidecar — fall back to keyword scoring
     let keywords = '';
-    try { keywords = execFileSync('/usr/bin/xattr', ['-p', 'gather.keywords', filePath], { encoding: 'utf8', stdio: ['pipe','pipe','pipe'] }).toLowerCase(); }
+    try { keywords = execFileSync('/usr/bin/xattr', ['-p', 'slice-of-life.keywords', filePath], { encoding: 'utf8', stdio: ['pipe','pipe','pipe'] }).toLowerCase(); }
     catch {}
     for (const w of HIGH_VALUE) if (keywords.includes(w)) score += 3;
     for (const w of MED_VALUE)  if (keywords.includes(w)) score += 2;
@@ -336,7 +337,7 @@ function selectBestFiles(labeledGroups, recapType, maxClips) {
       if (recapType === 'videos' && !isVideo) continue;
 
       // Only include files that have a Gather sidecar (processed by Gather)
-      if (!fs.existsSync(file.path + '.gather.json')) continue;
+      if (!fs.existsSync(file.path + '.slice-of-life.json') && !fs.existsSync(file.path + '.gather.json')) continue;
 
       const folder = path.dirname(file.path);
       if (!byFolder.has(folder)) byFolder.set(folder, []);

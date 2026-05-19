@@ -3,7 +3,6 @@ async function openSettings() {
     const s = await fetch('/api/settings').then(r => r.json());
 
     document.getElementById('output-folder-input').value   = s.outputFolder || '';
-    document.getElementById('open-when-done').checked      = s.openWhenDone !== false;
 
     const keyInput = document.getElementById('api-key-input');
     keyInput.value = '';
@@ -37,7 +36,7 @@ function renderApiStatus(state) {
   } else if (state === 'dev') {
     el.innerHTML = '<div class="api-dot ok"></div><span style="color:#60C060">AI powered by Slice of Life credits</span>';
   } else {
-    el.innerHTML = '<div class="api-dot bad"></div><span style="color:#C06060">No API key — AI features disabled</span>';
+    el.innerHTML = '<div class="api-dot bad"></div><span style="color:#C0A080">No API key — offline mode (audio heuristics)</span>';
   }
 }
 
@@ -54,7 +53,6 @@ async function saveSettings() {
 
   const body = {
     outputFolder,
-    openWhenDone: document.getElementById('open-when-done').checked,
   };
   if (apiKey) body.apiKey = apiKey;
 

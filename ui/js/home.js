@@ -176,6 +176,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     setTimeout(openGuide, 600);
   }
 
+  // Show offline notice when no internet or no API key.
+  // Server does a real DNS probe so this works even when a key is configured.
+  fetch('/api/settings').then(r => r.json()).then(s => {
+    if (!s.isOnline) {
+      document.getElementById('offline-notice').style.display = 'block';
+    }
+  }).catch(() => {});
+
   // Load credits
   fetch('/api/credits').then(r => r.json()).then(data => {
     document.getElementById('credits-count').textContent =

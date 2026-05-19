@@ -38,7 +38,7 @@ const BURNED_DATE_PATTERNS = [
 ];
 
 async function parseDateFromBurnedIn(filePath) {
-  const tmp = path.join(os.tmpdir(), `gather-ocr-${Date.now()}.jpg`);
+  const tmp = path.join(os.tmpdir(), `sol-ocr-${Date.now()}.jpg`);
   try {
     // Extract first frame
     await execFileAsync(ffmpegPath, [

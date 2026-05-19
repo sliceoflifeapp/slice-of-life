@@ -28,7 +28,7 @@
       font-size: 26px; color: #5B9EF0;
     }
 
-    .cfg-title { font-size: 20px; font-weight: 600; color: #FFF; }
+    .cfg-title { font-size: 20px; font-weight: 700; color: #FFF; text-transform: uppercase; letter-spacing: 0.06em; }
     .cfg-sub   { font-size: 13px; color: #3A6090; margin-top: 4px; }
 
     /* ── Duration pills ───────────────────────────────────────────────────── */
@@ -44,7 +44,7 @@
       padding: 12px 6px; border-radius: 12px; cursor: pointer;
       border: 1px solid rgba(255,255,255,0.1);
       background: rgba(255,255,255,0.04);
-      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
       transition: background 0.15s, border-color 0.15s;
       -webkit-app-region: no-drag;
     }
@@ -91,8 +91,8 @@
     @keyframes pulse-mic { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
 
     .dur-rec {
-      font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
-      color: #5B9EF0; margin-top: 2px;
+      font-size: 7px; font-weight: 600; letter-spacing: 0.06em;
+      color: #5B9EF0; margin-top: 1px; opacity: 0.8;
     }
 
     /* ── Footage stats ────────────────────────────────────────────────────── */
@@ -234,15 +234,22 @@
     .build-btn {
       width: 100%; max-width: 340px;
       padding: 15px;
-      background: linear-gradient(135deg,#1E5FC8,#1448A0);
-      border: none; border-radius: 14px;
+      background: rgba(50, 110, 225, 0.52);
+      border: 1px solid rgba(120, 185, 255, 0.38);
+      border-radius: 14px;
+      box-shadow: 0 1px 0 rgba(255,255,255,0.22) inset, 0 -1px 0 rgba(0,0,0,0.15) inset, 0 8px 28px rgba(30, 80, 200, 0.35);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
       color: #FFF; font-size: 15px; font-weight: 600;
       cursor: pointer; font-family: inherit;
       display: flex; align-items: center; justify-content: center; gap: 8px;
-      transition: opacity 0.15s;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
       -webkit-app-region: no-drag;
     }
-    .build-btn:hover  { opacity: 0.88; }
+    .build-btn:hover {
+      background: rgba(30, 95, 200, 0.42);
+      border-color: rgba(91, 158, 240, 0.38);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.14) inset, 0 10px 28px rgba(20, 60, 160, 0.4);
+    }
     .build-btn:disabled { opacity: 0.4; pointer-events: none; }
 
     .back-link {
@@ -275,7 +282,7 @@
         </div>
 
         <div>
-          <div class="cfg-title">Customise your Slice</div>
+          <div class="cfg-title">Customize your Slice</div>
           <div class="cfg-sub">Your adventures, cut and ready</div>
         </div>
 
@@ -321,23 +328,18 @@
 
         <!-- Duration picker -->
         <div class="dur-section">
-          <div class="dur-label">OUTPUT LENGTH</div>
           <div class="dur-pills" style="margin-bottom:0;">
             <div class="dur-pill" data-secs="30" onclick="selectDuration(this)">
               <div class="dur-pill-time">30s</div>
-              <div class="dur-pill-desc">Quick recap</div>
             </div>
             <div class="dur-pill" data-secs="60" onclick="selectDuration(this)">
               <div class="dur-pill-time">1 min</div>
-              <div class="dur-pill-desc">Highlight reel</div>
             </div>
             <div class="dur-pill" data-secs="180" onclick="selectDuration(this)">
               <div class="dur-pill-time">3 min</div>
-              <div class="dur-pill-desc">Full Slice</div>
             </div>
             <div class="dur-pill" data-secs="300" onclick="selectDuration(this)">
               <div class="dur-pill-time">5 min</div>
-              <div class="dur-pill-desc">Extended cut</div>
             </div>
           </div>
         </div>
@@ -409,13 +411,10 @@
           </div>
         </div>
 
-        <!-- Trip-only: Day title cards toggle -->
-        <div class="toggle-row" id="day-title-cards-toggle" onclick="toggleDayTitleCards()" style="display:none;">
-          <div class="toggle-row-left">
-            <div class="toggle-row-label">Day title cards</div>
-            <div class="toggle-row-sub">Insert "Day 2 · June 4" cards between days</div>
-          </div>
-          <div class="toggle-switch"></div>
+
+        <!-- Offline mode notice (shown when no API key) -->
+        <div id="offline-notice" style="display:none;width:100%;max-width:340px;padding:10px 14px;background:rgba(192,160,80,0.10);border:1px solid rgba(192,160,80,0.30);border-radius:10px;font-size:12px;color:#C0A080;text-align:center;line-height:1.5;">
+          <strong>Offline mode</strong> — AI clip analysis is unavailable. Narration clips will be detected by audio volume instead. Results may be less precise.
         </div>
 
         <button class="build-btn" id="build-btn" onclick="build()" disabled>
@@ -619,6 +618,10 @@
             if (data.text) {
               const ta = document.getElementById('day-description');
               ta.value = ta.value ? ta.value.trimEnd() + ' ' + data.text : data.text;
+            } else {
+              btn.title = 'Nothing heard — try again';
+              btn.classList.add('listening');
+              setTimeout(() => { btn.classList.remove('listening'); btn.title = 'Speak your description'; }, 1200);
             }
           } catch (err) {
             console.warn('STT transcription failed:', err.message);
@@ -683,6 +686,11 @@
     document.addEventListener('DOMContentLoaded', () => {
       startOrbs();
       scanClips();
+      fetch('/api/settings').then(r => r.json()).then(s => {
+        if (!s.isOnline) {
+          document.getElementById('offline-notice').style.display = 'block';
+        }
+      }).catch(() => {});
     });
   </script>
 </body>

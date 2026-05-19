@@ -1,28 +1,32 @@
-# Gather — Slice of Life
+# Slice of Life
 
 Electron + Express video journaling app. Records a day's worth of iPhone/camera footage and auto-edits it into a narrated journal video with b-roll cutaways, captions, and a Premiere XML export.
 
 ## Launch
 
 ```bash
-gather          # shell alias (new terminal tab)
+sol             # shell alias (new terminal tab)
+gather          # old alias still works
 npm start       # from project root
 ```
 
 ## Architecture
 
-- `main.js` — Electron shell, IPC bridges (selectFolder, selectFiles, openPath, getFilePath)
+- `main.js` — Electron shell, IPC bridges (selectFolder, selectFiles, openPath, getFilePath); runs one-time migration `~/.gather` → `~/.slice-of-life` on first launch
 - `server/` — Express API server embedded in Electron
   - `routes/api.js` — all HTTP endpoints
   - `lib/journal-pipeline.js` — orchestrates the full single-day pipeline
   - `lib/journal-video.js` — ffmpeg video assembly (rotation, bg blur, captions, encoding)
-  - `lib/face-detect.js` — Claude vision a-roll/b-roll classifier
+  - `lib/clip-vision.js` — unified Claude Vision classifier (replaces face-detect.js + score-broll.js)
   - `lib/fcpxml.js` — Premiere Pro xmeml v4 XML generator
   - `lib/trip-pipeline.js` — multi-day trip mode
 - `ui/` — plain HTML/CSS/JS frontend
   - `home.html` / `js/home.js` — home screen, source picker, recent slideshow
-  - `configure.html` — settings screen (duration, pacing, captions, orientation)
+  - `js/settings.js` — settings panel (API key, output folder, slideshow clear)
+  - `configure.html` — configure screen (duration, pacing, captions, orientation)
   - `journal.html` — progress/results screen
+  - `css/main.css` — shared styles (Montserrat font, glass button system, ambient glow)
+  - `js/orbs.js` — single static ambient light source (upper-right corner, no animation)
 
 ## Key Technical Details
 
@@ -46,15 +50,30 @@ npm start       # from project root
 - Overflow b-roll plays after narration section
 
 ### Exports
-- Video saved to `~/Movies/Gather/`
+- Video saved to `~/Movies/Slice of Life/`
 - XML saved to `~/Downloads/` with HH-MM timestamp in filename
-- Export log: `~/.gather/exports.json` — used for recent slideshow thumbnails
+- Export log: `~/.slice-of-life/exports.json` — used for recent slideshow thumbnails
 - Thumbnail security: both sides use `path.resolve()` before comparing
+
+### Data directory
+- All app data lives in `~/.slice-of-life/` (config.json, credits.json, exports.json, thumb-cache/)
+- Auto-migrated from `~/.gather/` on first launch via `main.js`
 
 ### Orientation
 - Landscape (default): 16:9, detects resolution from clip pool
 - Vertical: 1080x1920 output, selected in configure screen
 - XML generator scales clips to fit sequence frame (motionScale/motionFilter)
+
+### Credits
+- Stored in `~/.slice-of-life/credits.json`, default 500
+- `credits.deduct()` exists but is not yet wired into the pipeline — renders are currently free
+- Lemon Squeezy planned as payment processor for future credit top-ups (license key flow for beta)
+
+### UI design system
+- Font: Montserrat (local, `/fonts/Montserrat-Regular.ttf`), `zoom: 1.1` on `.inner`
+- Titles: `font-weight: 700`, `text-transform: uppercase`, `letter-spacing: 0.06em`
+- Primary buttons + mode cards: glass style — `rgba(50,110,225,0.52)` fill, bright border `rgba(120,185,255,0.38)`, inset top highlight, blue outer glow
+- Background: single static radial glow anchored upper-right (`orbs.js`), replaces old animated orbs
 
 ## Recent Work (session log)
 
@@ -76,26 +95,54 @@ npm start       # from project root
 - Fixed vertical XML sequence dimensions: 1080x1920 when orientation=vertical
 - Fixed vertical XML clip zoom: motionScale() computes letterbox scale per clip
 - Renamed "Start a new day" to "Start a new Slice"
-- Added `gather` shell alias in ~/.zshrc
-- Replaced face-detect.js + score-broll.js with unified `clip-vision.js` (single Claude Vision call per clip returns isTalkingHead, hasFace, qualityScore, contentTags, description, suggestedRotation)
-- clip-vision.js: extracts 3 frames at 20/50/80% of clip duration, pre-rotates using metadata before sending to Claude, asks Claude for *additional* correction needed on top
-- clip-vision.js: `finalRotation = (metadataRot + additionalRot) % 360`; `suggestedRotation=null` means fall back to metadata probe
-- clip-vision.js: bumped max_tokens to 400; added `suggestedRotation` to SAFE_DEFAULTS
-- Fixed rotation strategy: aroll always applies rotation (Vision or metadata); broll with rotate TAG applies rotation; broll with display matrix only applies Vision rotation if `hasFace` (person visible) — prevents object-only clips (camera on table) from being mis-rotated
-- `rotByPath` / `faceByPath` maps built in buildInterleaved and buildSequential from `clip.vision` data
-- `clipRotFrag(info, clipType, suggestedRotation, hasFace)` — final routing function for rotation filter fragment
-- `clipIsLandscapeForVertical` updated to use suggestedRotation when available
-- Fixed aroll section freeze: root cause was `break` in while loop when `brollAvail < MIN_BROLL_SEG` leaving tail narration uncovered — rewritten with nested ifs, loop never breaks
-- Added `[section N]` segment logging (total video vs audio delta) for freeze diagnosis
-- Added `fps=30` to section video concat filter output: `concat=n=N:v=1:a=0,fps=30`
-- Added `trim=end=narrDur,setpts=PTS-STARTPTS` to section video filter chain to hard-clamp video length
-- Added `atrim=end=narrDur,asetpts=PTS-STARTPTS` after loudnorm to hard-clamp audio length
-- Added `duration` directives to concat list so demuxer uses computed durations not container metadata
-- Fixed sub-frame freeze at section boundaries: `narrDur` now rounded to nearest 1/30s frame boundary — prevents encoder from filling sub-frame gaps with a repeated last frame
-- Highlight Reel toggle: title = "Highlight Reel", description = "Skips narration detection, cuts best shots together"
-- No-music/no-captions concat: re-encode with `-r 30` + ENCODE_FLAGS (not stream copy)
+- Replaced face-detect.js + score-broll.js with unified `clip-vision.js`
+- clip-vision.js: extracts 3 frames at 20/50/80%, pre-rotates using metadata, asks Claude for additional correction
+- clip-vision.js: `finalRotation = (metadataRot + additionalRot) % 360`; `suggestedRotation=null` falls back to metadata
+- Fixed rotation strategy: aroll always applies rotation; broll with display matrix only applies Vision rotation if `hasFace`
+- Fixed aroll section freeze: rewritten interleave loop, frame-rounding on narrDur, trim/atrim clamps, fps=30 on concat, duration directives, PCM+MKV intermediate sections
+- Highlight Reel toggle: skips narration detection, cuts best shots together
+- No-music/no-captions concat: re-encode with `-r 30` + ENCODE_FLAGS
+- UI overhaul: replaced animated orbs with single static ambient glow (upper-right corner)
+- UI: switched font to Montserrat, zoom: 1.1 on .inner
+- UI: primary buttons and mode cards converted to glass style
+- UI: titles all-caps, font-weight 700
+- UI: removed "Open journal folder when done" setting
+- UI: removed day title cards toggle from trip mode
+- UI: duration pills show time only (no descriptor labels)
+- UI: 1-min pill label changed from "Highlight reel" to "Quick cut"
+- UI: "Customise" → "Customize"
+- UI: Save button moved below slideshow clear option in settings
+- Renamed app throughout: `~/.gather/` → `~/.slice-of-life/`, `~/Movies/Gather/` → `~/Movies/Slice of Life/`
+- Auto-migration of `~/.gather/` → `~/.slice-of-life/` added to main.js startup
+- Sidecar reads fall back to `.gather.json` if `.slice-of-life.json` not found
+- Added `sol` shell alias; `gather` alias retained for compatibility
+- Fixed settings.js: removed stale reference to deleted `open-when-done` checkbox
+- Built and distributed beta DMG (`dist/Slice of Life-0.1.0-arm64.dmg`) with white camera icon
+- Added re-edit panel: cut rhythm presets (Tight/Balanced/Relaxed), orientation, captions, caption style
+- Re-edit captions toggle: `<button>` with `width:100%; font-family:inherit; text-align:left; -webkit-app-region:no-drag` — MUST stay a `<button>`, plain `<div>` is swallowed by Electron drag region and appears unclickable. This has reverted twice from worktree copies — always verify after any journal.html cp.
+- Re-edit caption style cards: `@font-face` + `[data-style]` CSS so each card displays in its actual font
+- Added offline mode check: `/api/settings` now DNS-probes `api.anthropic.com` and returns `isOnline`
+- Fixed XML broll mismatch: `resolvedTimeline` emitted by `buildInterleaved` passed to `fcpxml.generate()` — broll selection and cut timing now guaranteed to match the MP4
+- XML rotation: `xmlMotionRotation(clip, clipType)` computes delta between what ffmpeg applied and what Premiere auto-reads (rotate TAG vs display matrix); `motionRotationXml()` emits Basic Motion filter
+- XML audio: track 1 = narration (v1 aroll clips), track 2 = ambient broll (v2 clips); both use sourcetrack index 1
+- XML `buildFromTimeline`: groups resolvedTimeline by aroll clip path; V1 spans narr-only, V2 has broll at exact timeline positions
+- XML `clipType` now carried through all v1/v2 push calls so rotation filter is applied per clip type
+- Fixed XML button broken after re-edits: reedit endpoint now calls `autoExportXML` and returns `xmlPath`
+- Sidecar JSON size: `slimClip()` strips clip objects to 8 fcpxml-needed fields before storing in resolvedTimeline — avoids serializing transcript.segments arrays repeatedly
+- `CONCURRENCY = 1` in `buildInterleaved` — sections render sequentially; keeps fan manageable. Has reverted to 2 or 3 multiple times from worktree copies — always edit main project directly and verify.
+
+### XML generation details (`fcpxml.js`)
+- `buildFromTimeline(resolvedTimeline)`: primary path when resolvedTimeline present; fallback re-computes from assembly for old sidecars
+- `xmlMotionRotation(clip, clipType)`: Premiere reads rotate TAG automatically, NOT display matrix. Delta = (videoApplied - premiereAuto + 360) % 360. Returned as CCW-positive degrees.
+- Audio: `audioItem()` emits `<sourcetrack><mediatype>audio</mediatype><trackindex>N</trackindex>` — trackIndex is source channel (1=mono/left, 2=right), NOT destination track
+- `slimClip` fields needed in resolvedTimeline entries: `path`, `rotation`, `rotFromTag`, `storedW`, `storedH`, `needsColorConversion`, `dayIndex`, `vision.{suggestedRotation, hasFace, isTalkingHead}`
+
+### Worktree / main project sync hazard
+All edits must go directly to `/Users/nathangriffey/Desktop/gather/` (main project). The worktree at `.claude/worktrees/cranky-fermi-6e12eb/` is used for Claude Code sessions but `cp`-ing from it to main overwrites fixes made directly in main. Always edit the main project files directly for anything that must survive a session.
 
 ## Pending / Next Session
 
-- Verify the section-boundary freeze is fully resolved (narrDur frame-rounding fix not yet confirmed)
-- Remove or gate the `[section N]` debug segment logging behind a verbose flag
+- **Try VideoToolbox encoder** — replace `-c:v libx264 -preset fast -crf 23` in `ENCODE_FLAGS` with `-c:v h264_videotoolbox -b:v 10000k` (with libx264 fallback). Uses Apple Silicon media engine instead of CPU cores — fan stays quiet, 3–5× faster encode. Bitrate-based not CRF; 10 Mbps good for 1080p, 25–40 Mbps for 4K.
+- Clip 5153 rotation still wrong in XML — broll + display matrix + no Vision face = no rotation applied in both ffmpeg and XML, so root cause unclear without logging actual `rotFromTag`/`rotation`/`vision` values at export time
+- Remove or gate `[section N]` debug segment logging behind a verbose flag
+- Wire up Lemon Squeezy credit top-up flow when ready to monetize

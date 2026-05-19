@@ -4,7 +4,7 @@ const os   = require('os');
 
 function loadApiKey() {
   try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.gather', 'config.json'), 'utf8'));
+    const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.slice-of-life', 'config.json'), 'utf8'));
     if (cfg.anthropicApiKey) return cfg.anthropicApiKey;
   } catch {}
   return process.env.ANTHROPIC_API_KEY || null;

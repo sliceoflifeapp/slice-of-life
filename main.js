@@ -1,5 +1,16 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
+const fs   = require('fs');
+const os   = require('os');
+
+// One-time migration: rename ~/.gather → ~/.slice-of-life
+(function migrateDataDir() {
+  const oldDir = path.join(os.homedir(), '.gather');
+  const newDir = path.join(os.homedir(), '.slice-of-life');
+  if (fs.existsSync(oldDir) && !fs.existsSync(newDir)) {
+    try { fs.renameSync(oldDir, newDir); } catch {}
+  }
+})();
 
 let mainWindow;
 
@@ -29,7 +40,11 @@ function createWindow(port) {
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
   // Grant microphone permission for speech-to-text
-  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+  mainWindow.webContents.session.setPermissionCheckHandler((_wc, permission) => {
+    if (permission === 'media' || permission === 'microphone') return true;
+    return false;
+  });
+  mainWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
     if (permission === 'media' || permission === 'microphone') return callback(true);
     callback(false);
   });

@@ -260,7 +260,8 @@
       padding: 10px 12px;
       background: rgba(255,255,255,0.02);
       border: 1px solid rgba(255,255,255,0.06); border-radius: 10px;
-      cursor: pointer;
+      cursor: pointer; width: 100%; font-family: inherit; text-align: left;
+      -webkit-app-region: no-drag;
     }
     .reedit-toggle-row:hover { background: rgba(255,255,255,0.05); }
     .reedit-toggle-label { font-size: 12px; color: #B8D0EE; }
@@ -424,10 +425,19 @@
               </div>
             </div>
 
-            <div class="reedit-toggle-row" id="reedit-captions-toggle" onclick="toggleReeditCaptions()">
+            <div>
+              <div style="font-size:10px;font-weight:600;letter-spacing:0.08em;color:#3A6090;margin-bottom:8px;">CUT RHYTHM</div>
+              <div class="reedit-orient">
+                <button class="reedit-orient-btn" data-pacing="tight"    onclick="selectReeditPacing(this)">Tight</button>
+                <button class="reedit-orient-btn selected" data-pacing="balanced" onclick="selectReeditPacing(this)">Balanced</button>
+                <button class="reedit-orient-btn" data-pacing="relaxed"  onclick="selectReeditPacing(this)">Relaxed</button>
+              </div>
+            </div>
+
+            <button class="reedit-toggle-row" id="reedit-captions-toggle" onclick="toggleReeditCaptions()">
               <span class="reedit-toggle-label">Captions</span>
               <div class="reedit-toggle-switch"></div>
-            </div>
+            </button>
 
             <div id="reedit-style-wrap" style="display:none;">
               <div style="font-size:10px;font-weight:600;letter-spacing:0.08em;color:#3A6090;margin-bottom:8px;">CAPTION STYLE</div>
@@ -469,14 +479,26 @@
     let reeditOrientation   = 'landscape';
     let reeditCaptions      = false;
     let reeditCaptionStyle  = 'clean';
+    let reeditPacing        = 'balanced';
+
+    const PACING_PRESETS = {
+      tight:    { brollCut: 3, faceDur: 2 },
+      balanced: { brollCut: 5, faceDur: 4 },
+      relaxed:  { brollCut: 8, faceDur: 6 },
+    };
 
     function toggleReeditPanel() {
       document.getElementById('reedit-panel').classList.toggle('open');
     }
     function selectReeditOrient(el) {
-      document.querySelectorAll('.reedit-orient-btn').forEach(b => b.classList.remove('selected'));
+      document.querySelectorAll('[data-orient]').forEach(b => b.classList.remove('selected'));
       el.classList.add('selected');
       reeditOrientation = el.dataset.orient;
+    }
+    function selectReeditPacing(el) {
+      document.querySelectorAll('[data-pacing]').forEach(b => b.classList.remove('selected'));
+      el.classList.add('selected');
+      reeditPacing = el.dataset.pacing;
     }
     function toggleReeditCaptions() {
       reeditCaptions = !reeditCaptions;
@@ -487,6 +509,18 @@
       document.querySelectorAll('.reedit-cap-card').forEach(c => c.classList.remove('selected'));
       el.classList.add('selected');
       reeditCaptionStyle = el.dataset.style;
+    }
+
+    // Sync the re-edit panel DOM to the current JS state vars.
+    function syncReeditPanel() {
+      document.querySelectorAll('[data-orient]').forEach(b =>
+        b.classList.toggle('selected', b.dataset.orient === reeditOrientation));
+      document.querySelectorAll('[data-pacing]').forEach(b =>
+        b.classList.toggle('selected', b.dataset.pacing === reeditPacing));
+      document.getElementById('reedit-captions-toggle').classList.toggle('on', reeditCaptions);
+      document.getElementById('reedit-style-wrap').style.display = reeditCaptions ? 'block' : 'none';
+      document.querySelectorAll('.reedit-cap-card').forEach(c =>
+        c.classList.toggle('selected', c.dataset.style === reeditCaptionStyle));
     }
 
     async function startReedit() {
@@ -503,6 +537,7 @@
             captions:      reeditCaptions,
             captionStyle:  reeditCaptionStyle,
             orientation:   reeditOrientation,
+            pacingParams:  PACING_PRESETS[reeditPacing],
           }),
         });
         const data = await res.json();
@@ -603,6 +638,21 @@
       assemblyPath = data.assemblyPath || null;
       if (assemblyPath) {
         document.getElementById('reedit-btn').style.display = 'flex';
+        // Initialize re-edit panel to match the render that just completed
+        if (data.renderOpts) {
+          const ro = data.renderOpts;
+          reeditOrientation  = ro.orientation  || 'landscape';
+          reeditCaptions     = !!ro.captions;
+          reeditCaptionStyle = ro.captionStyle  || 'clean';
+          // Infer pacing preset from pacingParams, or default balanced
+          if (ro.pacingParams?.brollCut) {
+            const bc = ro.pacingParams.brollCut;
+            reeditPacing = bc <= 3 ? 'tight' : bc >= 7 ? 'relaxed' : 'balanced';
+          } else {
+            reeditPacing = 'balanced';
+          }
+          syncReeditPanel();
+        }
       }
 
       // Show save location

@@ -314,7 +314,7 @@ async function run(folderPath, options = {}, onProgress, pacingParams) {
     ? { enabled: true, style: options.captionStyle || 'clean' }
     : null;
 
-  await buildJournalVideo(assembly, videoOut, prog => {
+  const renderResult = await buildJournalVideo(assembly, videoOut, prog => {
     // prog may be a plain number (0–100) or { pct, message, detectedResolution }
     const pct = typeof prog === 'object' ? prog.pct : prog;
     const msg = typeof prog === 'object' && prog.message
@@ -323,6 +323,7 @@ async function run(folderPath, options = {}, onProgress, pacingParams) {
     const res = typeof prog === 'object' ? prog.detectedResolution : null;
     onProgress?.({ message: msg, progress: 70 + Math.round((pct / 100) * 25), detectedResolution: res });
   }, musicOpts, pacingParams, captionsOpts, { vertical: isVertical });
+  const resolvedTimeline = renderResult?.resolvedTimeline || null;
 
   // Sanity-check the output — a partial render leaves a file that's too small
   // to be a real video (concat demuxer writes a valid header even if it fails
@@ -367,7 +368,7 @@ async function run(folderPath, options = {}, onProgress, pacingParams) {
   try {
     assemblyPath = videoOut.replace(/\.mp4$/, '.assembly.json');
     fs.writeFileSync(assemblyPath, JSON.stringify({
-      version: 1, videoPath: videoOut, assembly,
+      version: 1, videoPath: videoOut, assembly, resolvedTimeline,
       opts: { captions: options.captions || false, captionStyle: options.captionStyle || 'clean', orientation: options.orientation || 'landscape' },
       createdAt: new Date().toISOString(),
     }, null, 2));
@@ -382,6 +383,7 @@ async function run(folderPath, options = {}, onProgress, pacingParams) {
     outDir,
     assembly,
     assemblyPath,
+    resolvedTimeline,
     pacingParams,
     outputDurationSec,
     stats: {

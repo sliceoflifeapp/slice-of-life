@@ -29,7 +29,7 @@ const SAFE_DEFAULTS = {
 let _client = null;
 function getClient() {
   if (_client) return _client;
-  const cfgPath = path.join(os.homedir(), '.gather', 'config.json');
+  const cfgPath = path.join(os.homedir(), '.slice-of-life', 'config.json');
   let cfg = {};
   try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); } catch {}
   const key = cfg.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
@@ -83,19 +83,33 @@ async function grabFrame(videoPath, seekSec, tmpPath, rotation) {
   return fs.readFileSync(tmpPath).toString('base64');
 }
 
-// Build the Vision prompt. If directorNotes are provided, append the matching
-// question. If highSensitivity is true, instruct Claude to be generous with
-// talking-head classification (trip mode).
-function buildPrompt(directorNotes, highSensitivity) {
+// Returns evenly-spaced seek proportions scaled to clip duration.
+// More frames for longer clips where temporal precision matters most.
+function seekProportions(durationSec) {
+  let count;
+  if      (durationSec <  60) count = 3;
+  else if (durationSec < 180) count = 5;
+  else if (durationSec < 480) count = 7;
+  else                         count = 9;
+  // Place frames at 1/(n+1), 2/(n+1) … n/(n+1) — evenly spaced, never at edges
+  return Array.from({ length: count }, (_, i) => (i + 1) / (count + 1));
+}
+
+// Build the Vision prompt. frameProportions is the actual array sent so the
+// description matches what Claude sees.
+function buildPrompt(frameProportions, directorNotes, highSensitivity) {
+  const n         = frameProportions.length;
+  const frameDesc = frameProportions.map((p, i) => `frame ${i} at ${Math.round(p * 100)}%`).join(', ');
   let prompt =
-    'Analyze these 3 frames sampled from a video clip (at 20%, 50%, and 80% through) and return ONLY a JSON object with no markdown:\n' +
+    `Analyze these ${n} frames sampled from a video clip (${frameDesc}) and return ONLY a JSON object with no markdown:\n` +
     '{\n' +
     '  "isTalkingHead": boolean — true if a person is looking toward camera and appears to be speaking/narrating,\n' +
     '  "hasFace": boolean — true if any face is visible,\n' +
     '  "qualityScore": number 0-100 — visual quality (composition, sharpness, lighting, interest; 0=unusable, 50=average, 100=excellent),\n' +
     '  "contentTags": array of applicable tags from: ["food","landscape","people","action","architecture","text","indoor","outdoor","animal","vehicle","water","night"],\n' +
-    '  "description": "one brief sentence describing what\'s in this frame",\n' +
-    '  "suggestedRotation": number — additional degrees clockwise (0, 90, 180, or 270) needed to correct orientation. These frames have already been pre-rotated using device metadata. If they still appear sideways or upside-down, specify the additional correction needed. Use 0 if correctly oriented.\n' +
+    '  "description": "one brief sentence describing what\'s in this clip",\n' +
+    '  "suggestedRotation": number — additional degrees clockwise (0, 90, 180, or 270) needed to correct orientation. These frames have already been pre-rotated using device metadata. If they still appear sideways or upside-down, specify the additional correction needed. Use 0 if correctly oriented,\n' +
+    `  "bestFrame": number 0-${n - 1} — which frame index contains the most visually interesting moment for a short cutaway shot\n` +
     '}';
 
   if (directorNotes) {
@@ -113,8 +127,8 @@ function buildPrompt(directorNotes, highSensitivity) {
   return prompt;
 }
 
-// Send three frames to Claude and parse the JSON response.
-async function askClaude(client, imageDataArray, directorNotes, highSensitivity) {
+// Send frames to Claude and parse the JSON response.
+async function askClaude(client, imageDataArray, frameProportions, directorNotes, highSensitivity) {
   const content = [
     ...imageDataArray.map(imageData => ({
       type: 'image',
@@ -122,13 +136,13 @@ async function askClaude(client, imageDataArray, directorNotes, highSensitivity)
     })),
     {
       type: 'text',
-      text: buildPrompt(directorNotes, highSensitivity),
+      text: buildPrompt(frameProportions, directorNotes, highSensitivity),
     },
   ];
 
   const msg = await client.messages.create({
     model: 'claude-haiku-4-5',
-    max_tokens: 400,
+    max_tokens: 450,
     messages: [{ role: 'user', content }],
   });
 
@@ -154,6 +168,8 @@ async function askClaude(client, imageDataArray, directorNotes, highSensitivity)
                             ? !!parsed.matchesDirectorNotes
                             : null,
     suggestedRotation,
+    bestFrame: typeof parsed.bestFrame === 'number' && parsed.bestFrame >= 0 && parsed.bestFrame < frameProportions.length
+                 ? Math.round(parsed.bestFrame) : null,
   };
 }
 
@@ -179,14 +195,15 @@ async function askClaude(client, imageDataArray, directorNotes, highSensitivity)
 async function analyzeClip(clip, directorNotes = '', opts = {}) {
   const client = getClient();
   if (!client) {
-    // No API key — return safe defaults so the pipeline still runs.
-    console.warn('[clip-vision] no Anthropic API key — returning defaults');
-    return { ...SAFE_DEFAULTS };
+    console.warn('[clip-vision] no API key — using offline heuristics');
+    const { analyzeClipOffline } = require('./clip-vision-offline');
+    return analyzeClipOffline(clip, directorNotes, opts);
   }
 
-  const dur      = clip.duration > 0 ? clip.duration : 10;
-  const seekPoints = [0.2, 0.5, 0.8].map(p => Math.min(dur - 0.5, Math.max(0.5, dur * p)));
-  const tmpPaths = seekPoints.map(() =>
+  const dur         = clip.duration > 0 ? clip.duration : 10;
+  const proportions = seekProportions(dur);
+  const seekPoints  = proportions.map(p => Math.min(dur - 0.5, Math.max(0.5, dur * p)));
+  const tmpPaths    = seekPoints.map(() =>
     path.join(os.tmpdir(), `clip-vision-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`)
   );
 
@@ -195,7 +212,7 @@ async function analyzeClip(clip, directorNotes = '', opts = {}) {
     const imageDataArray = await Promise.all(
       seekPoints.map((seekSec, i) => grabFrame(clip.path, seekSec, tmpPaths[i], metadataRot))
     );
-    const result = await askClaude(client, imageDataArray, directorNotes || '', !!opts.highSensitivity);
+    const result = await askClaude(client, imageDataArray, proportions, directorNotes || '', !!opts.highSensitivity);
 
     // Compute final rotation: metadata pre-rotation + any additional correction Claude detected.
     // e.g. metadata=90° applied to frame, Claude sees landscape content sideways → additional=270°
@@ -215,8 +232,11 @@ async function analyzeClip(clip, directorNotes = '', opts = {}) {
 
     return result;
   } catch (err) {
-    console.warn(`[clip-vision] ${path.basename(clip.path)}: error — ${err.message}`);
-    return { ...SAFE_DEFAULTS };
+    // Any API failure (network down, timeout, server error) — offline heuristics
+    // are always better than flat SAFE_DEFAULTS which mark every clip as b-roll.
+    console.warn(`[clip-vision] ${path.basename(clip.path)}: API error (${err.name || err.message}) — using offline heuristics`);
+    const { analyzeClipOffline } = require('./clip-vision-offline');
+    return analyzeClipOffline(clip, directorNotes, opts);
   } finally {
     for (const p of tmpPaths) { try { fs.unlinkSync(p); } catch {} }
   }
