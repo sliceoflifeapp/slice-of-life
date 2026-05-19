@@ -73,38 +73,10 @@ async function run(folderPath, options = {}, onProgress, pacingParams) {
   const broll = [];
   let checked = 0;
 
-  if (highlightOnly) {
-    // ── Highlight-reel mode: Vision pass only (no Whisper), exclude talking heads ──
-    // Vision gives us rotation data + quality scores; Whisper is skipped for speed.
-    for (const clip of probed) {
-      const pct = 20 + Math.round((checked / probed.length) * 40);
-      update(`Analysing clip ${checked + 1} of ${probed.length}…`, pct);
-
-      // Slo-mo / time-lapse are always good b-roll — no vision needed
-      if (clip.isSloMo || clip.isTimeLapse) {
-        broll.push({ ...clip, clipType: 'broll', brollScore: 60 });
-        checked++; continue;
-      }
-
-      const vision = await analyzeClip(clip, description, {});
-
-      if (vision.isTalkingHead) {
-        console.log(`[pipeline] highlight: ${path.basename(clip.path)}: talking head — skipped`);
-        checked++; continue;
-      }
-      if (vision.qualityScore < 15) {
-        console.log(`[pipeline] highlight: ${path.basename(clip.path)}: qualityScore=${vision.qualityScore} — skipped`);
-        checked++; continue;
-      }
-
-      broll.push({ ...clip, clipType: 'broll', vision, brollScore: vision.qualityScore });
-      checked++;
-    }
-  } else {
+  {
     // ── Unified Vision pass — one Claude call per clip ───────────────────────
-    // analyzeClip() returns isTalkingHead, hasFace, qualityScore, contentTags,
-    // description, and matchesDirectorNotes. Whisper runs only on clips that
-    // Vision identifies as talking-head candidates.
+    // Highlight mode: talking-head clips are skipped (no Whisper, no a-roll).
+    // Normal mode:    talking-head candidates confirmed with Whisper.
     for (const clip of probed) {
       const pct = 20 + Math.round((checked / probed.length) * 40);
       update(`Analysing clip ${checked + 1} of ${probed.length}…`, pct);
@@ -137,7 +109,12 @@ async function run(folderPath, options = {}, onProgress, pacingParams) {
       }
 
       if (vision.isTalkingHead) {
-        // Candidate a-roll → confirm with Whisper
+        if (highlightOnly) {
+          // Highlight mode: skip talking heads — b-roll only
+          console.log(`[pipeline] highlight: ${path.basename(clip.path)}: talking head — skipped`);
+          checked++; continue;
+        }
+        // Normal mode: confirm with Whisper
         update(`Transcribing clip ${checked + 1} of ${probed.length}…`, pct);
         const transcript = await whisper.transcribe(clip.path, clip.duration, description);
         if (transcript.isTalkingHead) {

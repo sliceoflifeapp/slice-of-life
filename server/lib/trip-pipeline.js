@@ -86,56 +86,56 @@ async function run(folderPath, options, onProgress, pacingParams) {
     const TALKING_HEAD_MIN_SEC = 4;
     const directorNotes = options.description || '';
 
-    if (highlightOnly) {
-      // Skip all speech detection — treat every clip as b-roll
-      for (const clip of dayClips) {
+    // ── Unified Vision pass (trip mode — high sensitivity) ─────────────────
+    // Highlight mode: talking-head clips are skipped (no Whisper, no a-roll).
+    // Normal mode:    talking-head candidates confirmed with Whisper.
+    for (const clip of dayClips) {
+      if (clip.duration < TALKING_HEAD_MIN_SEC) {
         broll.push({ ...clip, clipType: 'broll', dayIndex: i });
+        continue;
       }
-    } else {
-      // ── Unified Vision pass (trip mode — high sensitivity) ─────────────────
-      for (const clip of dayClips) {
-        if (clip.duration < TALKING_HEAD_MIN_SEC) {
-          broll.push({ ...clip, clipType: 'broll', dayIndex: i });
+      // Slo-mo and time-lapse are pure b-roll — skip Vision
+      if (clip.isSloMo || clip.isTimeLapse) {
+        broll.push({ ...clip, clipType: 'broll', dayIndex: i });
+        continue;
+      }
+      try {
+        // Trip mode always uses high sensitivity — more clips, more variety
+        const vision = await analyzeClip(clip, directorNotes, { highSensitivity: true });
+
+        // Hard reject: shot explicitly conflicts with director's notes
+        if (vision.matchesDirectorNotes === false) {
+          console.log(`[trip-pipeline] ${require('path').basename(clip.path)}: rejected — conflicts with director notes`);
           continue;
         }
-        // Slo-mo and time-lapse are pure b-roll — skip Vision
-        if (clip.isSloMo || clip.isTimeLapse) {
-          broll.push({ ...clip, clipType: 'broll', dayIndex: i });
+
+        // Hard reject: unusable shot
+        if (vision.qualityScore < 15) {
+          console.log(`[trip-pipeline] ${require('path').basename(clip.path)}: rejected — qualityScore=${vision.qualityScore}`);
           continue;
         }
-        try {
-          // Trip mode always uses high sensitivity — more clips, more variety
-          const vision = await analyzeClip(clip, directorNotes, { highSensitivity: true });
 
-          // Hard reject: shot explicitly conflicts with director's notes
-          if (vision.matchesDirectorNotes === false) {
-            console.log(`[trip-pipeline] ${require('path').basename(clip.path)}: rejected — conflicts with director notes`);
+        if (vision.isTalkingHead) {
+          if (highlightOnly) {
+            // Highlight mode: skip talking heads — b-roll only
+            console.log(`[trip-pipeline] highlight: ${require('path').basename(clip.path)}: talking head — skipped`);
             continue;
           }
-
-          // Hard reject: unusable shot
-          if (vision.qualityScore < 15) {
-            console.log(`[trip-pipeline] ${require('path').basename(clip.path)}: rejected — qualityScore=${vision.qualityScore}`);
-            continue;
-          }
-
-          if (vision.isTalkingHead) {
-            const result = await whisper.transcribe(clip.path, clip.duration, directorNotes);
-            if (result.isTalkingHead) {
-              aroll.push({
-                ...clip, clipType: 'aroll', dayIndex: i, transcript: result, vision,
-                trimStart: result.trimStart ?? 0,
-                trimEnd:   result.trimEnd   ?? clip.duration,
-              });
-            } else {
-              broll.push({ ...clip, clipType: 'broll', dayIndex: i, vision, brollScore: vision.qualityScore });
-            }
+          const result = await whisper.transcribe(clip.path, clip.duration, directorNotes);
+          if (result.isTalkingHead) {
+            aroll.push({
+              ...clip, clipType: 'aroll', dayIndex: i, transcript: result, vision,
+              trimStart: result.trimStart ?? 0,
+              trimEnd:   result.trimEnd   ?? clip.duration,
+            });
           } else {
             broll.push({ ...clip, clipType: 'broll', dayIndex: i, vision, brollScore: vision.qualityScore });
           }
-        } catch {
-          broll.push({ ...clip, clipType: 'broll', dayIndex: i });
+        } else {
+          broll.push({ ...clip, clipType: 'broll', dayIndex: i, vision, brollScore: vision.qualityScore });
         }
+      } catch {
+        broll.push({ ...clip, clipType: 'broll', dayIndex: i });
       }
     }
 
@@ -158,9 +158,8 @@ async function run(folderPath, options, onProgress, pacingParams) {
     const brollCut     = 7; // seconds per clip max
     const secsPerDay   = Math.max(10, Math.floor(targetSecs / dayCount));
     const pickedAll    = [];
-    for (const { dayKey, broll: dayBroll, aroll } of processedDays) {
-      // In highlight mode aroll is empty, but handle it defensively
-      const candidates = [...dayBroll, ...aroll.map(c => ({ ...c, clipType: 'broll' }))];
+    for (const { dayKey, broll: dayBroll } of processedDays) {
+      const candidates = dayBroll; // already sorted best-first by Vision qualityScore
       // Already sorted best-first by Vision qualityScore
       let budget = secsPerDay;
       for (const clip of candidates) {
