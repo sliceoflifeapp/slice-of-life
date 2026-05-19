@@ -139,8 +139,19 @@ async function probeMedia(filePath) {
 }
 
 // Shared output flags — explicit BT.709 signalling so players never guess.
+function detectVideoToolbox() {
+  try {
+    const { execFileSync } = require('child_process');
+    const out = execFileSync(ffmpegPath, ['-encoders'], { encoding: 'utf8', timeout: 5000 });
+    return out.includes('h264_videotoolbox');
+  } catch { return false; }
+}
+const USE_VIDEOTOOLBOX = detectVideoToolbox();
+
 const ENCODE_FLAGS = [
-  '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+  ...(USE_VIDEOTOOLBOX
+    ? ['-c:v', 'h264_videotoolbox', '-b:v', '10000k', '-realtime', 'false']
+    : ['-c:v', 'libx264', '-preset', 'fast', '-crf', '23']),
   '-color_range', 'tv', '-colorspace', 'bt709',
   '-color_primaries', 'bt709', '-color_trc', 'bt709',
   '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-ac', '2',

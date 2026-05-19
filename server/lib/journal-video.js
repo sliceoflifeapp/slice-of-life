@@ -246,6 +246,19 @@ function buildMusicVolumeExpr(arollSegs) {
   return expr;
 }
 
+// Detect VideoToolbox availability once at startup.
+// h264_videotoolbox uses Apple Silicon media engine — keeps fan quiet, 3-5× faster.
+// Falls back to libx264 if not available (non-Mac or older ffmpeg builds).
+function detectVideoToolbox() {
+  try {
+    const { execFileSync } = require('child_process');
+    const out = execFileSync(ffmpegPath, ['-encoders'], { encoding: 'utf8', timeout: 5000 });
+    return out.includes('h264_videotoolbox');
+  } catch { return false; }
+}
+const USE_VIDEOTOOLBOX = detectVideoToolbox();
+console.log(`[encode] using ${USE_VIDEOTOOLBOX ? 'h264_videotoolbox (hardware)' : 'libx264 (software)'}`);
+
 // Shared output encoding flags.
 // All pixel data at this point is genuinely BT.709 SDR:
 //   - regular iPhone clips: already bt709
@@ -253,7 +266,9 @@ function buildMusicVolumeExpr(arollSegs) {
 // So we explicitly signal bt709 limited-range in the H.264 SPS/VUI so players
 // (QuickTime, VLC) never guess and over-expand or mis-interpret the range.
 const ENCODE_FLAGS = [
-  '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+  ...(USE_VIDEOTOOLBOX
+    ? ['-c:v', 'h264_videotoolbox', '-b:v', '10000k', '-realtime', 'false']
+    : ['-c:v', 'libx264', '-preset', 'fast', '-crf', '23']),
   '-r', '30',           // force constant 30fps — prevents freeze at VFR section boundaries
   '-color_range', 'tv',
   '-colorspace', 'bt709',
