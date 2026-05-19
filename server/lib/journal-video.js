@@ -174,15 +174,27 @@ function rotFrag(rotation) {
 //     phone after the lock committed. Stored pixels are most likely correct.
 //     Vision can't reliably detect orientation on arbitrary content (e.g. a
 //     camera on a table looks the same upside-down), so we don't trust it here.
-function clipRotFrag(info, clipType, suggestedRotation, hasFace) {
+function clipRotFrag(info, clipType, suggestedRotation, hasFace, src) {
+  const tag = require('path').basename(src || '');
   if (clipType === 'broll' && !info.rotFromTag) {
     // Display matrix on broll is unreliable (auto-rotate lock artifact).
     // Only trust Vision's rotation if a person is visible — people have a
     // clear up/down orientation. Object-only content is ambiguous.
-    if (suggestedRotation != null && hasFace) return rotFrag(suggestedRotation);
+    if (suggestedRotation != null && hasFace) {
+      console.log(`[rot] ${tag}: broll/matrix → Vision ${suggestedRotation}° (hasFace=true)`);
+      return rotFrag(suggestedRotation);
+    }
+    if (suggestedRotation != null)
+      console.log(`[rot] ${tag}: broll/matrix → skip (suggestedRotation=${suggestedRotation}° ignored, hasFace=false)`);
+    else
+      console.log(`[rot] ${tag}: broll/matrix → skip (no Vision rotation, display matrix only)`);
     return '';
   }
-  if (suggestedRotation != null) return rotFrag(suggestedRotation);
+  if (suggestedRotation != null) {
+    console.log(`[rot] ${tag}: ${clipType}/${info.rotFromTag ? 'tag' : 'matrix'} → Vision ${suggestedRotation}°`);
+    return rotFrag(suggestedRotation);
+  }
+  console.log(`[rot] ${tag}: ${clipType}/tag → metadata ${info.rotation}°`);
   return rotFrag(info.rotation);
 }
 
@@ -763,7 +775,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
       const idx     = secIdx.get(seg.path);
       const info    = infoByPath.get(seg.path) || { rotation: 0, trc: '' };
       const segType = seg.path === aroll.path ? 'aroll' : 'broll';
-      const rot     = clipRotFrag(info, segType, rotByPath.get(seg.path), faceByPath.get(seg.path));
+      const rot     = clipRotFrag(info, segType, rotByPath.get(seg.path), faceByPath.get(seg.path), seg.path);
       const end     = (seg.startInSrc + seg.dur).toFixed(3);
       const fadeFilter = seg.fadeIn ? ',fade=t=in:st=0:d=0.5' : '';
       fp.push(`[${idx}:v]trim=start=${seg.startInSrc.toFixed(3)}:end=${end},setpts=PTS-STARTPTS${rot}${fadeFilter}[sv${s}]`);
@@ -803,7 +815,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
       const brDur = Math.min(BROLL_CUT, brInfo.duration || BROLL_CUT);
 
       const brFp = [
-        `[0:v]trim=0:${brDur.toFixed(3)},setpts=PTS-STARTPTS${clipRotFrag(brInfo, 'broll', rotByPath.get(br.path), faceByPath.get(br.path))}[brv]`,
+        `[0:v]trim=0:${brDur.toFixed(3)},setpts=PTS-STARTPTS${clipRotFrag(brInfo, 'broll', rotByPath.get(br.path), faceByPath.get(br.path), br.path)}[brv]`,
         bgFilter('[brv]', '[brout]', `brovf${i}_${j}`, brInfo.trc, outW, outH, isVertical && clipIsLandscapeForVertical(brInfo, rotByPath.get(br.path), 'broll')),
         brInfo.hasAudio
           ? `[0:a]atrim=0:${brDur.toFixed(3)},volume=0.12,asetpts=PTS-STARTPTS[bra]`
@@ -1067,7 +1079,7 @@ async function buildSequential(assembly, outPath, onProgress, musicOpts, BROLL_C
     const clip = assembly[i];
     const info = infos[i];
     const dur  = clipDurations[i];
-    const rot = clipRotFrag(info, clip.clipType, rotByPath.get(clip.path), faceByPath.get(clip.path));
+    const rot = clipRotFrag(info, clip.clipType, rotByPath.get(clip.path), faceByPath.get(clip.path), clip.path);
     fp.push(`[${i}:v]setpts=PTS-STARTPTS${rot}[vr${i}]`);
     fp.push(bgFilter(`[vr${i}]`, `[v${i}]`, `sbg${i}`, info.trc, outW, outH, isVertical && clipIsLandscapeForVertical(info, rotByPath.get(clip.path), clip.clipType)));
 
