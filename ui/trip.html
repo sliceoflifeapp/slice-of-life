@@ -71,9 +71,9 @@
       width: 100%; display: flex; flex-direction: column; align-items: center;
       gap: 6px; margin-bottom: 20px;
     }
-    .done-eyebrow { font-size: 10px; letter-spacing: 0.1em; color: #3A6090; font-weight: 600; }
+    .done-eyebrow { font-size: 10px; letter-spacing: 0.1em; color: #3A6090; font-weight: 600; transition: color 1.2s ease; }
     .done-title   { font-size: 22px; font-weight: 700; color: #FFF; }
-    .done-meta    { font-size: 12px; color: #3A6090; }
+    .done-meta    { font-size: 12px; color: #3A6090; transition: color 1.2s ease; }
 
     .done-journal-wrap {
       width: 100%; max-height: 200px; overflow-y: auto;
@@ -205,7 +205,7 @@
         <!-- Done state -->
         <div class="done-area" id="done-area">
           <div class="done-header">
-            <div class="done-eyebrow">TRIP VIDEO READY</div>
+            <div class="done-eyebrow" id="done-eyebrow">TRIP VIDEO READY</div>
             <div class="done-title" id="done-title">Your Trip</div>
             <div class="done-meta"  id="done-meta"></div>
           </div>
@@ -293,7 +293,19 @@
     function showDone(data) {
       document.getElementById('processing-state').style.display = 'none';
       document.getElementById('done-area').classList.add('visible');
-      if (window.celebrateOrb) window.celebrateOrb();
+      if (typeof window.celebrateOrb === 'function') {
+        window.onCelebProgress = function (p) {
+          const eyebrow = document.getElementById('done-eyebrow');
+          const meta    = document.getElementById('done-meta');
+          const r = Math.round(58  + p * (139 - 58));
+          const g = Math.round(96  + p * (191 - 96));
+          const b = Math.round(144 + p * (232 - 144));
+          const col = `rgb(${r},${g},${b})`;
+          if (eyebrow) eyebrow.style.color = col;
+          if (meta)    meta.style.color    = col;
+        };
+        window.celebrateOrb();
+      }
 
       const days = data.dayCount || '?';
       document.getElementById('done-title').textContent = `${days}-Day Trip`;
