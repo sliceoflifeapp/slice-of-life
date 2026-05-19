@@ -652,7 +652,7 @@
         brollCut: +( base.brollCut * mult ).toFixed(1),
         faceDur:  +( base.faceDur  * mult ).toFixed(1),
       };
-      const body = { folderPath, targetDuration: selectedSecs, pacingParams: params, description, captions: captionsEnabled, captionStyle: selectedCaptionStyle, orientation: selectedOrientation, dayTitleCards: dayTitleCardsEnabled, highlightOnly };
+      const body = { folderPath, targetDuration: selectedSecs, pacingParams: params, pacing: selectedPacing, description, captions: captionsEnabled, captionStyle: selectedCaptionStyle, orientation: selectedOrientation, dayTitleCards: dayTitleCardsEnabled, highlightOnly };
 
       try {
         if (mode === 'trip') {

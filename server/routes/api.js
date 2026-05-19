@@ -121,7 +121,7 @@ router.post('/journal/start', (req, res) => {
   }, pacingParams).then(result => {
     const name    = path.basename(path.dirname(result.videoPath));
     const xmlPath = autoExportXML(result, name, pacingParams, pipelineOpts.orientation);
-    const renderOpts = { captions: pipelineOpts.captions, captionStyle: pipelineOpts.captionStyle, orientation: pipelineOpts.orientation, pacingParams };
+    const renderOpts = { captions: pipelineOpts.captions, captionStyle: pipelineOpts.captionStyle, orientation: pipelineOpts.orientation, pacingParams, pacing: req.body.pacing || null };
     journalJobs.set(jobId, { status: 'done', progress: 100, message: 'Done!', ...result, xmlPath, assemblyPath: result.assemblyPath || null, renderOpts });
     recordExport(result.videoPath, name, result.assembly, result.thumbPath);
     analytics.track('render_completed', {
@@ -674,7 +674,7 @@ router.post('/journal/reedit', (req, res) => {
     recordExport(videoOut, name, assembly, thumbPath);
 
     const xmlPath = autoExportXML({ assembly, resolvedTimeline, videoPath: videoOut }, name, pacingParams, orientation);
-    const renderOpts = { captions: captions || false, captionStyle: captionStyle || 'clean', orientation: orientation || 'landscape', pacingParams: pacingParams || null };
+    const renderOpts = { captions: captions || false, captionStyle: captionStyle || 'clean', orientation: orientation || 'landscape', pacingParams: pacingParams || null, pacing: req.body.pacing || null };
     journalJobs.set(jobId, {
       status: 'done', progress: 100, message: 'Done!',
       videoPath: videoOut, thumbPath, assemblyPath: newAssemblyPath,

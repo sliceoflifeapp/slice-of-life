@@ -555,6 +555,7 @@
             captionStyle:  reeditCaptionStyle,
             orientation:   reeditOrientation,
             pacingParams:  PACING_PRESETS[reeditPacing],
+            pacing:        reeditPacing,
           }),
         });
         const data = await res.json();
@@ -677,13 +678,7 @@
           reeditOrientation  = ro.orientation  || 'landscape';
           reeditCaptions     = !!ro.captions;
           reeditCaptionStyle = ro.captionStyle  || 'clean';
-          // Infer pacing preset from pacingParams, or default balanced
-          if (ro.pacingParams?.brollCut) {
-            const bc = ro.pacingParams.brollCut;
-            reeditPacing = bc <= 3 ? 'tight' : bc >= 7 ? 'relaxed' : 'balanced';
-          } else {
-            reeditPacing = 'balanced';
-          }
+          reeditPacing = ro.pacing || 'balanced';
           syncReeditPanel();
         }
       }
