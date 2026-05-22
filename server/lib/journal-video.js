@@ -664,12 +664,38 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
     });
   }
 
+  // ── Bridge b-roll allocation ──────────────────────────────────────────────
+  // Each section transition needs a b-roll "bandaid" so the viewer never sees
+  // a direct face→face jump cut between narration sections.  We take 1 clip
+  // per transition from whichever adjacent section has ≥2 clips to spare.
+  // Bridges are rendered as standalone clips and inserted in the concat list
+  // between section N and section N+1.  They use the b-roll's ambient audio.
+  const bridges = sectionMap.length > 1
+    ? new Array(sectionMap.length - 1).fill(null)
+    : [];
+  for (let i = 0; i < bridges.length; i++) {
+    const curr = sectionMap[i];
+    const next = sectionMap[i + 1];
+    if (next.brolls.length > 1) {
+      bridges[i] = next.brolls.shift();     // preview clip: shows where we're going
+    } else if (curr.brolls.length > 1) {
+      bridges[i] = curr.brolls.pop();        // farewell clip: shows where we were
+    } else if (next.brolls.length === 1) {
+      bridges[i] = next.brolls.shift();      // last resort: borrow next section's only clip
+      // section N+1 runs without a cutaway but at least the transition is covered
+    }
+    // If neither, bridge[i] remains null — direct cut accepted when b-roll is scarce
+  }
+
   // ── Slot budget per narration section ────────────────────────────────────
   // slots = how many face→broll cycles fit during narration (= cutaway count)
   // overflow cap = same number of extra broll clips play AFTER narration ends
   // This keeps each section's total broll count at most 2× its slot count.
+  // Use the TRIMMED duration (trimEnd - trimStart) not raw clip duration —
+  // windowed clips may only use 10s of a 36s source and allocating slots for
+  // 36s produces far too many cutaway slots, crowding out the bridge mechanism.
   const slotsPerAroll = arollClips.map(c => {
-    const dur = c.duration || 0;
+    const dur = (c.trimEnd ?? c.duration || 0) - (c.trimStart ?? 0);
     return Math.max(1, Math.floor(Math.max(0, dur - FACE_DUR) / (FACE_DUR + BROLL_CUT)) + 1);
   });
 
@@ -947,6 +973,44 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
           });
         }
         timeOffset += ovf.dur;
+      }
+
+      // ── Bridge clip (section transition bandaid) ──────────────────────
+      // Render 1 b-roll clip between this section and the next so the viewer
+      // never sees a direct face→face jump cut at section boundaries.
+      // The bridge clip was allocated above from whichever adjacent section
+      // had spare clips; it plays after any overflow and before section N+1.
+      if (i < bridges.length && bridges[i]) {
+        const br     = bridges[i];
+        const brInfo = infoByPath.get(br.path);
+        if (brInfo && brInfo.duration >= 0.5) {
+          const brDur  = Math.min(BROLL_CUT, brInfo.duration || BROLL_CUT);
+          const brFp   = [
+            `[0:v]trim=0:${brDur.toFixed(3)},setpts=PTS-STARTPTS${clipRotFrag(brInfo, 'broll', rotByPath.get(br.path), faceByPath.get(br.path), br.path)}[brv]`,
+            bgFilter('[brv]', '[brout]', `bridge${i}`, brInfo.trc, outW, outH, isVertical && clipIsLandscapeForVertical(brInfo, rotByPath.get(br.path), 'broll', faceByPath.get(br.path))),
+            brInfo.hasAudio
+              ? `[0:a]atrim=0:${brDur.toFixed(3)},volume=0.12,asetpts=PTS-STARTPTS[bra]`
+              : `aevalsrc=0:c=stereo:s=48000:d=${brDur.toFixed(3)}[bra]`,
+          ];
+          const bridgeFile = path.join(tmpDir, `bridge${i}.mp4`);
+          try {
+            await execFileAsync(ffmpegPath, [
+              '-noautorotate', '-i', br.path,
+              '-filter_complex', brFp.join(';'),
+              '-map', '[brout]', '-map', '[bra]',
+              ...encodeFlags(outW, outH), '-y', bridgeFile,
+            ], { maxBuffer: 100 * 1024 * 1024, timeout: 120000 });
+            sectionFiles.push({ file: bridgeFile, dur: brDur, isAroll: false });
+            resolvedTimeline.push({
+              clip: slimClip(br), clipType: 'broll',
+              srcIn: 0, srcOut: brDur, dur: brDur, timelineSec: timeOffset,
+            });
+            timeOffset += brDur;
+            console.log(`[bridge] section ${i}→${i+1}: ${path.basename(br.path)} (${brDur.toFixed(1)}s)`);
+          } catch (err) {
+            console.warn(`[bridge] section ${i}→${i+1} (${path.basename(br.path)}) failed: ${err.message}`);
+          }
+        }
       }
     }
 

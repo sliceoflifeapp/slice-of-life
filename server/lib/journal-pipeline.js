@@ -348,11 +348,17 @@ async function assignBrollSemantically(aroll, broll, log, style = 'balanced', ar
           max_tokens: 5,
           messages: [{ role: 'user', content: `B-roll clip: "${desc}"\n\nWhich section best fits this clip visually?\n${secLabels.join('\n')}\n\nReply with only the section number (e.g. "5").` }],
         });
-        const sectionNum = parseInt(retryMsg.content[0].text.trim());
-        if (!isNaN(sectionNum) && sectionNum >= secMin + 1 && sectionNum <= secMax + 1) {
+        // Parse the first number from the response — handles "5", "Section 5", "5\n", etc.
+        const numMatch  = retryMsg.content[0].text.match(/\d+/);
+        const sectionNum = numMatch ? parseInt(numMatch[0]) : NaN;
+        if (isNaN(sectionNum)) {
+          log?.write(`  [revert-retry] "${path.basename(clip.path)}" — no number in response: "${retryMsg.content[0].text.trim().slice(0,40)}"`);
+        } else if (sectionNum < secMin + 1 || sectionNum > secMax + 1) {
+          log?.write(`  [revert-retry] "${path.basename(clip.path)}" returned ${sectionNum} — out of range ${secMin+1}–${secMax+1}`);
+        } else {
           clip.semanticSection = sectionNum - 1;
           assigned++;
-          log?.write(`  [revert-retry] "${path.basename(clip.path)}" → section ${sectionNum} (within window ${secMin+1}–${secMax+1})`);
+          log?.write(`  [revert-retry] "${path.basename(clip.path)}" → section ${sectionNum} (window ${secMin+1}–${secMax+1})`);
         }
       } catch (retryErr) {
         log?.write(`  [revert-retry] "${path.basename(clip.path)}" failed (${retryErr.message}) — falling back to timestamp proximity`);
@@ -792,14 +798,24 @@ async function run(folderPath, options = {}, onProgress, pacingParams) {
             if (lastMatchIdx < next) { teaserSeg = seg; charAtSeg = charPos; break; }
             charPos = next;
           }
-          // Estimate the cut point within the segment by character proportion —
-          // avoids cutting before content that precedes the teaser phrase in the
-          // same segment (e.g. "hat was gone ... and I'll show you a bit here").
+          // Cut at the END of the segment that comes just before the teaser
+          // phrase's segment — not inside the teaser segment using character
+          // proportion. The teaser phrase is often embedded in a run-on sentence
+          // ("Anyway, we're in Dreamworks and let me show you this") and a
+          // proportion-based cut lands mid-sentence. Cutting at the prior
+          // segment boundary gives a complete thought (e.g. "my hat was gone.")
+          const segsBeforeTeaser = segs.filter(s => s.end <= teaserSeg.start + 0.05 && s !== teaserSeg);
+          const prevSeg = segsBeforeTeaser.length > 0 ? segsBeforeTeaser[segsBeforeTeaser.length - 1] : null;
+          const naturalCut = prevSeg ? prevSeg.end + 0.15 : null;
+
+          // Fall back to character proportion if no prior segment or it's too close to trimStart.
           const matchOffsetInSeg = lastMatchIdx - charAtSeg;
           const fraction = Math.max(0, matchOffsetInSeg) / Math.max(1, teaserSeg.text.length);
-          const cutPoint  = teaserSeg.start + fraction * (teaserSeg.end - teaserSeg.start);
+          const propCut  = teaserSeg.start + fraction * (teaserSeg.end - teaserSeg.start);
+
+          const cutPoint = (naturalCut && naturalCut > trimSt + 0.5) ? naturalCut : propCut;
           if (cutPoint > trimSt + 0.5) {
-            log.write(`[teaser] "${fullText.slice(lastMatchIdx, lastMatchIdx + lastMatchLen)}" near end → trim to ${cutPoint.toFixed(1)}s`);
+            log.write(`[teaser] "${fullText.slice(lastMatchIdx, lastMatchIdx + lastMatchLen)}" near end → trim to ${cutPoint.toFixed(1)}s${naturalCut && naturalCut === cutPoint ? ' (segment boundary)' : ' (char proportion)'}`);
             cappedAroll[cappedAroll.length - 1] = { ...last, trimEnd: cutPoint };
           } else {
             log.write(`[teaser] phrase found but estimated cut (${cutPoint.toFixed(1)}s) too close to trimStart — skipping`);
