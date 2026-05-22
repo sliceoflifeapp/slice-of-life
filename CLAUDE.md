@@ -288,6 +288,10 @@ swiftc -O server/vision-cli/main.swift \
 
 **Rotation:** read directly from `AVURLAsset` video track `preferredTransform`. Equivalent to the display matrix path in the old ffmpeg probe. `atan2(b,a)` gives visual CW rotation (video Y-down convention).
 
+**Fixed post-launch (v0.1.30):**
+- B-roll rotation regression: `rotFromTag` clips were getting Apple Vision rotation applied (Vision reads `preferredTransform` which may be identity for cameras that store rotation only in the rotate tag, not the tkhd matrix). Fix: promote `rotFromTag` check above Vision check in `clipRotFrag` — tag is always authoritative for b-roll.
+- A-roll mid-sentence cut: `findDenseWindow` and `findBestWindow` hard-cut at `windowStart + maxDuration`, slicing mid-sentence when the last Whisper segment straddled the boundary. Fix: `extendToSegmentBoundary()` extends window end to the last segment's end, up to 3s grace.
+
 **Still pending:**
 - Test on a second machine to verify binary runs without issues
 - Update debug-last-run.log to show `_source: 'apple'` vs `'claude'` per clip (currently logged to console only)

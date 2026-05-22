@@ -8,6 +8,8 @@ const { snapDuration } = require('./beats');
 
 const execFileAsync = promisify(execFile);
 
+const VERBOSE = process.env.SOL_VERBOSE === '1';
+
 // Fallback — overridden at runtime by detectOutputResolution()
 const OUTPUT_W  = 1920;
 const OUTPUT_H  = 1080;
@@ -175,29 +177,31 @@ function clipRotFrag(info, clipType, suggestedRotation, hasFace, src) {
   const tag = require('path').basename(src || '');
   if (clipType === 'aroll') {
     if (suggestedRotation != null) {
-      console.log(`[rot] ${tag}: aroll → Vision ${suggestedRotation}°`);
+      VERBOSE && console.log(`[rot] ${tag}: aroll → Vision ${suggestedRotation}°`);
       return rotFrag(suggestedRotation);
     }
-    console.log(`[rot] ${tag}: aroll → metadata ${info.rotation}°`);
+    VERBOSE && console.log(`[rot] ${tag}: aroll → metadata ${info.rotation}°`);
     return rotFrag(info.rotation);
   }
-  // B-roll: only trust Vision when a person is visible
-  if (suggestedRotation != null && hasFace) {
-    console.log(`[rot] ${tag}: broll → Vision ${suggestedRotation}° (hasFace=true)`);
+  // B-roll rotation rules:
+  //
+  // 1. Rotate-TAG clips: tag is ALWAYS authoritative — Apple Vision reads preferredTransform
+  //    which may be identity for cameras that store rotation only in the rotate tag, not the
+  //    tkhd matrix.  Applying Vision rotation here would either double-rotate or under-rotate.
+  //
+  // 2. Display-matrix clips (rotFromTag=false): trust Vision when a person is visible
+  //    (face orientation is unambiguous) or when Vision says 180° (upside-down is never
+  //    intentional framing).  For everything else, skip rotation.
+  if (info.rotFromTag) {
+    VERBOSE && console.log(`[rot] ${tag}: broll/tag → metadata ${info.rotation}° (tag always authoritative)`);
+    return rotFrag(info.rotation);
+  }
+  if (suggestedRotation != null && (hasFace || suggestedRotation === 180)) {
+    VERBOSE && console.log(`[rot] ${tag}: broll/matrix → Vision ${suggestedRotation}° (hasFace=${hasFace})`);
     return rotFrag(suggestedRotation);
   }
-  if (info.rotFromTag) {
-    if (suggestedRotation != null)
-      console.log(`[rot] ${tag}: broll/tag → metadata ${info.rotation}° (Vision ignored, hasFace=false)`);
-    else
-      console.log(`[rot] ${tag}: broll/tag → metadata ${info.rotation}°`);
-    return rotFrag(info.rotation);
-  }
-  // Display matrix only — skip rotation
-  if (suggestedRotation != null)
-    console.log(`[rot] ${tag}: broll/matrix → skip (Vision ignored, hasFace=false)`);
-  else
-    console.log(`[rot] ${tag}: broll/matrix → skip`);
+  // Display matrix, no face, not upside-down — skip rotation
+  VERBOSE && console.log(`[rot] ${tag}: broll/matrix → skip (hasFace=${hasFace} rot=${suggestedRotation ?? 'null'})`);
   return '';
 }
 
@@ -479,10 +483,10 @@ function generateAss(sections) {
     const segments  = clip.transcript?.segments || [];
     const trimStart = clip.trimStart ?? 0;
     const trimEnd   = clip.trimEnd   ?? clip.duration ?? 999;
-    const timed = segments.filter(s => s.end > 0 && s.start < trimEnd && s.end > trimStart);
+    const timed = segments.filter(s => s.end > 0 && s.start >= trimStart && s.start < trimEnd);
 
     for (const seg of timed) {
-      const outStart = timelineStart + Math.max(0, seg.start - trimStart);
+      const outStart = timelineStart + (seg.start - trimStart);
       const outEnd   = timelineStart + Math.min(trimEnd - trimStart, seg.end - trimStart);
       if (outEnd <= outStart + 0.05) continue;
 
@@ -493,9 +497,7 @@ function generateAss(sections) {
         const t0 = assTime(chunk.start);
         const t1 = assTime(chunk.end);
         const escaped = chunk.text.replace(/\{/g, '{\\').replace(/\}/g, '\\}');
-        // Shadow layer (blurred, offset)
         lines.push(`Dialogue: 0,${t0},${t1},Shad,,0,0,0,,{\\an2\\blur2\\pos(${CX + DX},${CY + DY})}${escaped}`);
-        // Main text layer (sharp)
         lines.push(`Dialogue: 1,${t0},${t1},Main,,0,0,0,,{\\an2\\pos(${CX},${CY})}${escaped}`);
       }
     }
@@ -514,19 +516,16 @@ function generateSrt(sections) {
     const segments  = clip.transcript?.segments || [];
     const trimStart = clip.trimStart ?? 0;
     const trimEnd   = clip.trimEnd   ?? clip.duration ?? 999;
-    // Only keep segments that have real timing and fall within the trimmed window
-    const timed = segments.filter(s => s.end > 0 && s.start < trimEnd && s.end > trimStart);
+    const timed = segments.filter(s => s.end > 0 && s.start >= trimStart && s.start < trimEnd);
 
     for (const seg of timed) {
-      const outStart = timelineStart + Math.max(0, seg.start - trimStart);
+      const outStart = timelineStart + (seg.start - trimStart);
       const outEnd   = timelineStart + Math.min(trimEnd - trimStart, seg.end - trimStart);
-      if (outEnd <= outStart + 0.05) continue; // skip sub-50ms ghosts
+      if (outEnd <= outStart + 0.05) continue;
 
-      // Strip Whisper noise tokens like [BLANK_AUDIO], [Music], (inaudible)
       const text = seg.text.replace(/\[.*?\]|\(.*?\)/g, '').trim();
       if (!text) continue;
 
-      // Break long segments into short caption chunks (~5 words each)
       for (const chunk of chunkSegment(text, outStart, outEnd, 5)) {
         entries.push(`${idx}\n${srtTime(chunk.start)} --> ${srtTime(chunk.end)}\n${chunk.text}\n`);
         idx++;
@@ -562,7 +561,7 @@ async function buildJournalVideo(assembly, outPath, onProgress, musicOpts, pacin
   const outH = isVertical ? 1920 : detH;
 
   // Surface the detected resolution to the UI via the progress callback
-  onProgress?.({ pct: 8, message: 'Analysing clips…', detectedResolution: `${outW}×${outH}` });
+  onProgress?.({ pct: 8, message: 'Analyzing clips…', detectedResolution: `${outW}×${outH}` });
 
   const hasAroll    = assembly.some(c => c.clipType === 'aroll');
   const hasBroll    = assembly.some(c => c.clipType === 'broll');
@@ -591,10 +590,12 @@ async function buildJournalVideo(assembly, outPath, onProgress, musicOpts, pacin
 // Returns true if the clip's display pixels are wider than tall — i.e. it is
 // landscape content. Used to decide whether bgFilter needs blur bars.
 // Accepts an optional suggestedRotation from Vision; falls back to probe metadata.
-function clipIsLandscapeForVertical(info, suggestedRotation, clipType) {
+function clipIsLandscapeForVertical(info, suggestedRotation, clipType, hasFace = false) {
   const { storedW = 0, storedH = 0, rotation = 0, rotFromTag = false } = info;
-  // Broll with display matrix: no rotation applied, use stored dimensions directly.
-  if (clipType === 'broll' && !rotFromTag) return storedW > storedH;
+  // Broll with display matrix: rotation is only applied in the filter chain when
+  // hasFace=true (clipRotFrag uses Vision rotation for people, not objects).
+  // If rotation IS applied we must use effective display dims, not stored dims.
+  if (clipType === 'broll' && !rotFromTag && !hasFace) return storedW > storedH;
   const effectiveRot = suggestedRotation ?? rotation;
   const displayW = (effectiveRot === 90 || effectiveRot === 270) ? storedH : storedW;
   const displayH = (effectiveRot === 90 || effectiveRot === 270) ? storedW : storedH;
@@ -621,11 +622,25 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
 
   if (arollClips.length === 0) return buildSequential(assembly, outPath, onProgress, musicOpts, BROLL_CUT, outW, outH, isVertical);
 
-  // ── Match each broll clip to its nearest narration clip by timestamp ────────
+  // ── Match each broll clip to a narration section ─────────────────────────
+  // Priority order:
+  //   1. Semantic section (set by pipeline's Claude Haiku assignment)
+  //   2. Directional: b-roll filmed after the last narration → last section
+  //      (preserves "let me show you" → payoff-clip intent)
+  //   3. Timestamp proximity (original fallback)
   const sectionMap = arollClips.map(aroll => ({ aroll, brolls: [] }));
+  const lastArollTime = arollClips.length ? (arollClips[arollClips.length - 1].filledAt || 0) : 0;
 
   for (const br of brollClips) {
+    if (br.semanticSection !== undefined && br.semanticSection >= 0 && br.semanticSection < sectionMap.length) {
+      sectionMap[br.semanticSection].brolls.push(br);
+      continue;
+    }
     const brTime = br.filledAt || 0;
+    if (brTime > lastArollTime && arollClips.length > 0) {
+      sectionMap[sectionMap.length - 1].brolls.push(br);
+      continue;
+    }
     let bestIdx = 0, bestDist = Infinity;
     for (let i = 0; i < arollClips.length; i++) {
       const dist = Math.abs((arollClips[i].filledAt || 0) - brTime);
@@ -634,7 +649,14 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
     sectionMap[bestIdx].brolls.push(br);
   }
   for (const sec of sectionMap) {
-    sec.brolls.sort((a, b) => (a.filledAt || 0) - (b.filledAt || 0));
+    sec.brolls.sort((a, b) => {
+      // Semantically-assigned clips (set by Claude Haiku) sort before
+      // timestamp-matched ones so the overflow cap preserves them.
+      const aS = a.semanticSection !== undefined ? 0 : 1;
+      const bS = b.semanticSection !== undefined ? 0 : 1;
+      if (aS !== bS) return aS - bS;
+      return (a.filledAt || 0) - (b.filledAt || 0);
+    });
   }
 
   // ── Slot budget per narration section ────────────────────────────────────
@@ -672,12 +694,14 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
     sectionMap[i].brolls = sectionMap[i].brolls.slice(0, maxTotal);
   }
 
-  console.log('[interleaved] slot distribution:');
-  sectionMap.forEach((sec, i) => {
-    const cut = sec.brolls.slice(0, slotsPerAroll[i]);
-    const ovf = sec.brolls.slice(slotsPerAroll[i]);
-    console.log(`  ${path.basename(sec.aroll.path)} (${sec.aroll.duration?.toFixed(1)}s, ${slotsPerAroll[i]} slots): cutaways=[${cut.map(b => path.basename(b.path)).join(', ') || 'none'}]${ovf.length ? ` overflow=[${ovf.map(b => path.basename(b.path)).join(', ')}]` : ''}`);
-  });
+  if (VERBOSE) {
+    console.log('[interleaved] slot distribution:');
+    sectionMap.forEach((sec, i) => {
+      const cut = sec.brolls.slice(0, slotsPerAroll[i]);
+      const ovf = sec.brolls.slice(slotsPerAroll[i]);
+      console.log(`  ${path.basename(sec.aroll.path)} (${sec.aroll.duration?.toFixed(1)}s, ${slotsPerAroll[i]} slots): cutaways=[${cut.map(b => path.basename(b.path)).join(', ') || 'none'}]${ovf.length ? ` overflow=[${ovf.map(b => path.basename(b.path)).join(', ')}]` : ''}`);
+    });
+  }
 
   // ── Probe all clips upfront ───────────────────────────────────────────────
   const allClips = [...arollClips, ...brollClips];
@@ -754,14 +778,15 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
       }
     }
 
-    // Log segments so we can diagnose freeze issues
-    console.log(`[section ${i}] segments for ${path.basename(aroll.path)} (narrDur=${narrDur.toFixed(2)}s):`);
-    let segTotal = 0;
-    for (const seg of segs) {
-      console.log(`  ${path.basename(seg.path)} startInSrc=${seg.startInSrc.toFixed(2)} dur=${seg.dur.toFixed(2)} clipDur=${(infoByPath.get(seg.path)?.duration ?? 0).toFixed(2)}`);
-      segTotal += seg.dur;
+    if (VERBOSE) {
+      console.log(`[section ${i}] segments for ${path.basename(aroll.path)} (narrDur=${narrDur.toFixed(2)}s):`);
+      let segTotal = 0;
+      for (const seg of segs) {
+        console.log(`  ${path.basename(seg.path)} startInSrc=${seg.startInSrc.toFixed(2)} dur=${seg.dur.toFixed(2)} clipDur=${(infoByPath.get(seg.path)?.duration ?? 0).toFixed(2)}`);
+        segTotal += seg.dur;
+      }
+      console.log(`  total video=${segTotal.toFixed(2)}s audio=${narrDur.toFixed(2)}s delta=${(segTotal - narrDur).toFixed(3)}s`);
     }
-    console.log(`  total video=${segTotal.toFixed(2)}s audio=${narrDur.toFixed(2)}s delta=${(segTotal - narrDur).toFixed(3)}s`);
 
     // ── filter_complex ───────────────────────────────────────────────────
     const inputPaths = [...new Set(segs.map(s => s.path))];
@@ -782,7 +807,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
       const end     = (seg.startInSrc + seg.dur).toFixed(3);
       const fadeFilter = seg.fadeIn ? ',fade=t=in:st=0:d=0.5' : '';
       fp.push(`[${idx}:v]trim=start=${seg.startInSrc.toFixed(3)}:end=${end},setpts=PTS-STARTPTS${rot}${fadeFilter}[sv${s}]`);
-      fp.push(bgFilter(`[sv${s}]`, `[svout${s}]`, `sg${i}_${s}`, info.trc, outW, outH, isVertical && clipIsLandscapeForVertical(info, rotByPath.get(seg.path), segType)));
+      fp.push(bgFilter(`[sv${s}]`, `[svout${s}]`, `sg${i}_${s}`, info.trc, outW, outH, isVertical && clipIsLandscapeForVertical(info, rotByPath.get(seg.path), segType, faceByPath.get(seg.path))));
     }
     fp.push(`${segs.map((_, s) => `[svout${s}]`).join('')}concat=n=${segs.length}:v=1:a=0,fps=30,trim=end=${narrDur.toFixed(3)},setpts=PTS-STARTPTS[secv]`);
 
@@ -819,7 +844,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
 
       const brFp = [
         `[0:v]trim=0:${brDur.toFixed(3)},setpts=PTS-STARTPTS${clipRotFrag(brInfo, 'broll', rotByPath.get(br.path), faceByPath.get(br.path), br.path)}[brv]`,
-        bgFilter('[brv]', '[brout]', `brovf${i}_${j}`, brInfo.trc, outW, outH, isVertical && clipIsLandscapeForVertical(brInfo, rotByPath.get(br.path), 'broll')),
+        bgFilter('[brv]', '[brout]', `brovf${i}_${j}`, brInfo.trc, outW, outH, isVertical && clipIsLandscapeForVertical(brInfo, rotByPath.get(br.path), 'broll', faceByPath.get(br.path))),
         brInfo.hasAudio
           ? `[0:a]atrim=0:${brDur.toFixed(3)},volume=0.12,asetpts=PTS-STARTPTS[bra]`
           : `aevalsrc=0:c=stereo:s=48000:d=${brDur.toFixed(3)}[bra]`,
@@ -856,7 +881,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
       chunkResults.forEach((r, offset) => { sectionResults[start + offset] = r; });
       const doneCount = start + chunk.length;
       onProgress?.({ pct: 15 + Math.round((doneCount / sectionMap.length) * 65),
-        message: `Rendering section ${doneCount} of ${sectionMap.length}…` });
+        message: `${doneCount} of ${sectionMap.length} done…` });
     }
 
     // Build ordered concat list from results, computing time offsets
@@ -1084,7 +1109,7 @@ async function buildSequential(assembly, outPath, onProgress, musicOpts, BROLL_C
     const dur  = clipDurations[i];
     const rot = clipRotFrag(info, clip.clipType, rotByPath.get(clip.path), faceByPath.get(clip.path), clip.path);
     fp.push(`[${i}:v]setpts=PTS-STARTPTS${rot}[vr${i}]`);
-    fp.push(bgFilter(`[vr${i}]`, `[v${i}]`, `sbg${i}`, info.trc, outW, outH, isVertical && clipIsLandscapeForVertical(info, rotByPath.get(clip.path), clip.clipType)));
+    fp.push(bgFilter(`[vr${i}]`, `[v${i}]`, `sbg${i}`, info.trc, outW, outH, isVertical && clipIsLandscapeForVertical(info, rotByPath.get(clip.path), clip.clipType, faceByPath.get(clip.path))));
 
     if (clip.clipType === 'aroll' && info.hasAudio) {
       fp.push(`[${i}:a]apad,atrim=0:${dur},loudnorm=I=-16:LRA=11:TP=-1.5,asetpts=PTS-STARTPTS[a${i}]`);
