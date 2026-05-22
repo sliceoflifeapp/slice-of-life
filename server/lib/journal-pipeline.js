@@ -107,6 +107,107 @@ async function selectBestAroll(aroll, numClips, targetSecs, description, log) {
   }
 }
 
+// Extract one auto-rotated JPEG frame from a video clip at `timeSec`.
+// Auto-rotation (no -noautorotate) lets ffmpeg apply the rotate tag so Claude
+// sees the frame in its correct upright orientation.
+async function extractBrollFrame(videoPath, timeSec, outPath) {
+  await execFileAsync(ffmpegPath, [
+    '-ss', String(Math.max(0, timeSec)),
+    '-i',  videoPath,
+    '-frames:v', '1',
+    '-vf', 'scale=320:320:force_original_aspect_ratio=decrease',
+    '-q:v', '5',
+    '-y',  outPath,
+  ], { timeout: 15000, maxBuffer: 5 * 1024 * 1024 });
+}
+
+// When running with Apple Vision (no description/contentTags), batch-describe
+// every b-roll clip using Claude Haiku vision in groups of BATCH_SIZE.
+// Sets clip.vision.description in-place so assignBrollSemantically can match
+// clips to narration sections semantically instead of by timestamp proximity.
+async function describeBroll(clips, log) {
+  const toDescribe = clips.filter(c => !c.vision?.description && !c.vision?.contentTags?.length);
+  if (!toDescribe.length) return;
+
+  const client = whisper.getClient();
+  if (!client) {
+    log?.write('[describe-broll] no API key — b-roll will use timestamp proximity');
+    return;
+  }
+
+  log?.write(`[describe-broll] describing ${toDescribe.length} b-roll clips in batch...`);
+  const BATCH_SIZE = 15;
+
+  for (let batchStart = 0; batchStart < toDescribe.length; batchStart += BATCH_SIZE) {
+    const batch    = toDescribe.slice(batchStart, batchStart + BATCH_SIZE);
+    const tmpPaths = new Array(batch.length).fill(null);
+
+    try {
+      // Extract one frame per clip concurrently
+      await Promise.all(batch.map(async (clip, i) => {
+        const t = (clip.duration || 4) * 0.45; // slightly before midpoint
+        const p = path.join(os.tmpdir(), `broll-desc-${Date.now()}-${i}.jpg`);
+        try {
+          await extractBrollFrame(clip.path, t, p);
+          if (fs.existsSync(p)) tmpPaths[i] = p;
+        } catch { /* skip this clip */ }
+      }));
+
+      // Build multimodal message — interleave image + label for each clip
+      const content    = [];
+      const validIdxs  = [];
+      for (let i = 0; i < batch.length; i++) {
+        if (!tmpPaths[i]) continue;
+        try {
+          const data = fs.readFileSync(tmpPaths[i]).toString('base64');
+          content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } });
+          content.push({ type: 'text', text: `Image ${validIdxs.length + 1}` });
+          validIdxs.push(i);
+        } catch { /* skip unreadable frame */ }
+      }
+      if (!validIdxs.length) continue;
+
+      content.push({
+        type: 'text',
+        text: 'Each image above is a frame from a b-roll video clip. ' +
+              'For each image write a 4–6 word description of the main subject, location, and action ' +
+              '(e.g. "person walking through office door", "aerial view of city skyline", "coffee on wooden desk"). ' +
+              'Reply with ONLY a compact JSON object: {"1":"description","2":"description",...}',
+      });
+
+      const msg = await client.messages.create({
+        model:      'claude-haiku-4-5-20251001',
+        max_tokens: 300,
+        messages:   [{ role: 'user', content }],
+      });
+
+      const raw  = msg.content[0].text.trim();
+      const json = raw.match(/\{[\s\S]*\}/)?.[0];
+      if (!json) throw new Error('no JSON in response');
+      const descs = JSON.parse(json);
+
+      let described = 0;
+      validIdxs.forEach((batchIdx, descIdx) => {
+        const d = descs[String(descIdx + 1)];
+        if (d && typeof d === 'string') {
+          batch[batchIdx].vision.description = d.trim();
+          described++;
+        }
+      });
+      const batchNum = Math.floor(batchStart / BATCH_SIZE) + 1;
+      log?.write(`[describe-broll] batch ${batchNum}: described ${described}/${validIdxs.length} clips`);
+      batch.forEach(c => {
+        if (c.vision?.description) log?.write(`  "${path.basename(c.path)}" → "${c.vision.description}"`);
+      });
+
+    } catch (err) {
+      log?.write(`[describe-broll] batch failed: ${err.message}`);
+    } finally {
+      for (const p of tmpPaths) if (p) try { fs.unlinkSync(p); } catch {}
+    }
+  }
+}
+
 // Ask Claude Haiku to assign each b-roll clip to the narration section it
 // best illustrates, using Vision descriptions + transcript text.
 // Writes clip.semanticSection (0-based index) in-place on matching clips.
@@ -680,6 +781,14 @@ async function run(folderPath, options = {}, onProgress, pacingParams) {
       log.write(`[story-arc] failed: ${e.message}`);
     }
   }
+
+  // ── Describe b-roll for semantic matching ────────────────────────────────
+  // Apple Vision returns no description/contentTags — without this step,
+  // assignBrollSemantically has nothing to work with and falls back to
+  // timestamp proximity for every clip.  One batched Claude Haiku call
+  // per 15 clips gives enough context to match clips to narration sections.
+  update('Describing b-roll…', 67);
+  await describeBroll(scoredBroll, log);
 
   // ── Semantic b-roll assignment ────────────────────────────────────────────
   // Ask Claude Haiku to match each b-roll clip to the narration section it

@@ -97,46 +97,80 @@ func detectFaces(in cgImage: CGImage) -> FrameFaceInfo {
     return info
 }
 
-// MARK: — Quality score (luminance variance via CoreGraphics)
+// MARK: — Quality score (contrast + Laplacian sharpness via CoreGraphics)
 //
-// Renders the frame to a 16×16 thumbnail and computes the standard deviation
-// of luminance values. Higher variance = more visual interest and contrast.
-// This avoids CIImage coordinate-system issues and reliably returns non-zero
-// values for any non-trivial footage.
+// Blends two metrics via geometric mean into a 0–100 score:
+//   • Contrast : luminance std-dev on a 16×16 thumbnail — penalises dark/flat clips
+//   • Sharpness: Laplacian variance on a 64×64 thumbnail — penalises blurry/motion-blur
+//
+// Geometric mean forces a clip to score well on BOTH axes.  A blurry but
+// high-contrast interior shot (e.g. dark car seats + bright window) that
+// previously scored well on contrast alone now receives a heavy sharpness
+// penalty.  sqrt(70 * 10) ≈ 26 vs sqrt(70 * 60) ≈ 65 for a sharp equivalent.
 
-private let THUMB = 16
+private let THUMB_CONTRAST = 16   // small, fast contrast check
+private let THUMB_SHARP    = 64   // larger thumbnail needed for Laplacian kernel
+
+// Render cgImage to an N×N thumbnail and return Rec.601 luminance values.
+func renderLuminance(_ cgImage: CGImage, size: Int) -> [Double]? {
+    var raw = [UInt8](repeating: 0, count: size * size * 4)
+    guard let ctx = CGContext(
+        data:             &raw,
+        width:            size,
+        height:           size,
+        bitsPerComponent: 8,
+        bytesPerRow:      size * 4,
+        space:            CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo:       CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { return nil }
+    ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: size, height: size))
+    return (0 ..< size * size).map { i in
+        0.299 * Double(raw[i*4]) + 0.587 * Double(raw[i*4+1]) + 0.114 * Double(raw[i*4+2])
+    }
+}
 
 func qualityScore(of cgImage: CGImage) -> Double {
-    var buf = [UInt8](repeating: 0, count: THUMB * THUMB * 4)
-    guard let ctx = CGContext(
-        data: &buf,
-        width:             THUMB,
-        height:            THUMB,
-        bitsPerComponent:  8,
-        bytesPerRow:       THUMB * 4,
-        space:             CGColorSpaceCreateDeviceRGB(),
-        bitmapInfo:        CGImageAlphaInfo.premultipliedLast.rawValue
-    ) else { return 50.0 }
 
-    ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: THUMB, height: THUMB))
-
-    let n = Double(THUMB * THUMB)
-    var sum = 0.0, sumSq = 0.0
-
-    for i in stride(from: 0, to: buf.count, by: 4) {
-        // Rec. 601 luminance
-        let lum = 0.299 * Double(buf[i]) + 0.587 * Double(buf[i + 1]) + 0.114 * Double(buf[i + 2])
-        sum   += lum
-        sumSq += lum * lum
+    // ── Contrast: luminance std-dev ──────────────────────────────────────────
+    var contrastScore = 50.0
+    if let lum = renderLuminance(cgImage, size: THUMB_CONTRAST) {
+        let n    = Double(lum.count)
+        let mean = lum.reduce(0, +) / n
+        let vari = lum.reduce(0.0) { $0 + ($1 - mean) * ($1 - mean) } / n
+        // std≈0 = flat/dark, std≈50 → 63, std≈80 → 100
+        contrastScore = min(100.0, sqrt(vari) * 100.0 / 80.0)
     }
 
-    let mean     = sum / n
-    let variance = (sumSq / n) - (mean * mean)
-    let stdDev   = sqrt(max(0.0, variance))
+    // ── Sharpness: Laplacian variance ────────────────────────────────────────
+    // Laplacian highlights edges; its variance across the thumbnail is a
+    // standard measure of focus.  Blurry or motion-blurred clips have low
+    // edge content and therefore low Laplacian variance.
+    var sharpScore = 50.0
+    if let lum = renderLuminance(cgImage, size: THUMB_SHARP) {
+        let S      = THUMB_SHARP
+        let kernel: [Double] = [-1,-1,-1,  -1,8,-1,  -1,-1,-1]
+        var responses = [Double]()
+        responses.reserveCapacity((S - 2) * (S - 2))
+        for y in 1 ..< (S - 1) {
+            for x in 1 ..< (S - 1) {
+                var v = 0.0
+                for dy in -1...1 {
+                    for dx in -1...1 {
+                        v += kernel[(dy+1)*3 + (dx+1)] * lum[(y+dy)*S + (x+dx)]
+                    }
+                }
+                responses.append(v)
+            }
+        }
+        let n    = Double(responses.count)
+        let mean = responses.reduce(0, +) / n
+        let vari = responses.reduce(0.0) { $0 + ($1 - mean) * ($1 - mean) } / n
+        // blurry ≈ 1–6, average ≈ 8–20, sharp ≈ 25–50+
+        sharpScore = min(100.0, sqrt(vari) * 100.0 / 35.0)
+    }
 
-    // stdDev ranges: ~0 = uniform/black, ~30-70 = typical footage, ~100+ = high contrast
-    // Map so stdDev=50 → score≈63, stdDev=80 → score≈100
-    return min(100.0, stdDev * 100.0 / 80.0)
+    // Geometric mean: both axes must score well.
+    return sqrt(contrastScore * sharpScore)
 }
 
 // MARK: — Safe default output
