@@ -297,9 +297,12 @@ async function assignBrollSemantically(aroll, broll, log, style = 'balanced', ar
     // Hard chronological guard — use actual filledAt timestamps (not quality-sort
     // position) so the fraction accurately reflects when each clip was filmed.
     // Threshold: 35% — a clip can shift at most ~1 act (1/3 of the video) from
-    // its natural chronological position. Larger jumps are reverted to timestamp
-    // proximity so late-day footage never appears at the start of the video.
+    // its natural chronological position. Larger jumps are reverted, but instead
+    // of falling back to pure timestamp proximity (which ignores content), we
+    // store the natural chronological section so a follow-up pass can make a
+    // content-aware reassignment within the correct chronological window.
     let reverted = 0;
+    const revertedClips = [];
     assignable.forEach((clip, i) => {
       if (clip.semanticSection === undefined) return;
       // Use real timestamp fraction when available; fall back to array index.
@@ -309,13 +312,54 @@ async function assignBrollSemantically(aroll, broll, log, style = 'balanced', ar
       const sectionFrac = (clip.semanticSection + 0.5) / aroll.length;
       if (Math.abs(clipFrac - sectionFrac) > 0.35) {
         log?.write(`  [reorder-revert] "${path.basename(clip.path)}" filmed@${Math.round(clipFrac*100)}% → sec ${clip.semanticSection+1}/${aroll.length} (${Math.round(sectionFrac*100)}%) out of chronological order`);
+        // Store the natural chronological section for the retry pass below.
+        clip._chronoSection = Math.max(0, Math.min(aroll.length - 1, Math.round(clipFrac * (aroll.length - 1))));
         delete clip.semanticSection;
         assigned--;
         reverted++;
+        revertedClips.push(clip);
       }
     });
 
-    log?.write(`[semantic-broll] style=${style} assigned ${assigned}/${assignable.length} clips${reverted ? ` (${reverted} reverted — out of chronological order)` : ''}`);
+    // Secondary pass: for each reverted clip, ask Claude which of the ±1
+    // sections around its natural chronological position fits best.  This gives
+    // content-aware placement within the correct act, preventing mismatches
+    // like "lily pad garden" appearing during a "lost my hat" narration.
+    for (const clip of revertedClips) {
+      const chronoSec = clip._chronoSection;
+      const secMin    = Math.max(0, chronoSec - 1);
+      const secMax    = Math.min(aroll.length - 1, chronoSec + 1);
+      delete clip._chronoSection;
+      if (secMin === secMax) {
+        clip.semanticSection = secMin;
+        assigned++;
+        log?.write(`  [revert-retry] "${path.basename(clip.path)}" → only section ${secMin + 1} in range`);
+        continue;
+      }
+      const secLabels = [];
+      for (let s = secMin; s <= secMax; s++) {
+        const txt = (aroll[s].transcript?.segments || []).map(t => t.text).join(' ').slice(0, 150).trim();
+        secLabels.push(`Section ${s + 1}: "${txt || '(no transcript)'}"`);
+      }
+      const desc = clip.vision?.description || '';
+      try {
+        const retryMsg = await client.messages.create({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 5,
+          messages: [{ role: 'user', content: `B-roll clip: "${desc}"\n\nWhich section best fits this clip visually?\n${secLabels.join('\n')}\n\nReply with only the section number (e.g. "5").` }],
+        });
+        const sectionNum = parseInt(retryMsg.content[0].text.trim());
+        if (!isNaN(sectionNum) && sectionNum >= secMin + 1 && sectionNum <= secMax + 1) {
+          clip.semanticSection = sectionNum - 1;
+          assigned++;
+          log?.write(`  [revert-retry] "${path.basename(clip.path)}" → section ${sectionNum} (within window ${secMin+1}–${secMax+1})`);
+        }
+      } catch (retryErr) {
+        log?.write(`  [revert-retry] "${path.basename(clip.path)}" failed (${retryErr.message}) — falling back to timestamp proximity`);
+      }
+    }
+
+    log?.write(`[semantic-broll] style=${style} final: ${assigned}/${assignable.length} clips assigned (${reverted} reverted+retried)`);
     assignable.forEach((clip, i) => {
       if (clip.semanticSection !== undefined) {
         log?.write(`  "${path.basename(clip.path)}" → section ${clip.semanticSection + 1}`);
@@ -684,12 +728,16 @@ async function run(folderPath, options = {}, onProgress, pacingParams) {
     for (const clip of selectedAroll) {
       const clipDur = (clip.trimEnd ?? clip.duration) - (clip.trimStart ?? 0);
       if (clipDur <= slicePerClip) {
+        log.write(`  [window] ${path.basename(clip.path)}: ${clipDur.toFixed(1)}s fits budget (${slicePerClip.toFixed(1)}s/clip) — using full clip`);
         cappedAroll.push(clip);
       } else {
         const win = await whisper.findBestWindow(clip.transcript?.segments || [], slicePerClip, description);
         if (win) {
+          const winDur = (win.windowEnd - win.windowStart).toFixed(1);
+          log.write(`  [window] ${path.basename(clip.path)}: ${clipDur.toFixed(1)}s → [${win.windowStart.toFixed(1)}s–${win.windowEnd.toFixed(1)}s] (${winDur}s)`);
           cappedAroll.push({ ...clip, trimStart: win.windowStart, trimEnd: win.windowEnd });
         } else {
+          log.write(`  [window] ${path.basename(clip.path)}: ${clipDur.toFixed(1)}s → hard trim to ${slicePerClip.toFixed(1)}s (no segments)`);
           cappedAroll.push({ ...clip, trimEnd: (clip.trimStart ?? 0) + slicePerClip });
         }
       }

@@ -98,7 +98,7 @@ function extendToSegmentBoundary(timed, windowEnd, maxGrace = 3.0) {
 // ending punctuation (. ! ?).  If found, cut after that segment so the last
 // word the viewer hears completes a full thought.  Falls back to
 // extendToSegmentBoundary when no sentence boundary is found.
-function findNaturalCutEnd(timed, targetEnd, maxGrace = 4.0) {
+function findNaturalCutEnd(timed, targetEnd, maxGrace = 2.0) {
   const candidates   = timed.filter(s => s.end >= targetEnd - 2.0 && s.end <= targetEnd + maxGrace);
   const sentenceEnds = candidates.filter(s => /[.!?](\s*$)/.test(s.text.trim()));
 
@@ -115,21 +115,22 @@ function findNaturalCutEnd(timed, targetEnd, maxGrace = 4.0) {
   return extendToSegmentBoundary(timed, targetEnd, maxGrace);
 }
 
-// Snap a window start to the nearest clean sentence start.
-// If the raw start falls mid-segment, jumps forward to the next segment edge.
-// Then looks up to 1s ahead for a segment that begins with a capital letter
-// (Whisper capitalises the first word of new sentences).
+// Snap a window start to the nearest clean segment boundary.
+// If the raw start falls mid-segment, jumps forward to the next segment edge
+// so we don't start on a cut word.  Otherwise returns targetStart unchanged.
+//
+// NOTE: the old version scanned up to 1s ahead for a capital letter (Whisper
+// capitalises nearly every segment), which caused it to skip the actual start
+// of the desired content — making clips sound like they start mid-sentence.
+// Removed that scan: findDenseWindow already starts at segment boundaries, and
+// findBestWindow picks a semantically good start; no additional snapping needed.
 function findNaturalCutStart(timed, targetStart) {
-  // Snap forward if we land inside an existing segment
+  // Snap forward if we land inside an existing segment to avoid mid-word starts.
   const midSeg = timed.find(s => s.start < targetStart - 0.05 && s.end > targetStart + 0.1);
   if (midSeg) {
     const nextSeg = timed.find(s => s.start >= midSeg.end - 0.05);
     if (nextSeg) return Math.max(0, nextSeg.start - 0.1);
   }
-  // At a segment boundary — prefer one that begins a new sentence
-  const nearby = timed.filter(s => s.start >= targetStart - 0.15 && s.start <= targetStart + 1.0);
-  const sentenceStart = nearby.find(s => /^[A-Z"']/.test(s.text.trim()));
-  if (sentenceStart) return Math.max(0, sentenceStart.start - 0.1);
   return targetStart;
 }
 
