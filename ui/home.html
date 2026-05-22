@@ -14,12 +14,133 @@
     }
     .settings-icon:hover { color: #6A9FD4; }
 
-    /* ── Content area ──────────────────────────────────────────────────────── */
+    /* ── Hero split layout ──────────────────────────────────────────────────── */
     .content {
       display: flex;
-      flex-direction: column;
       align-items: center;
-      padding: 32px 40px 20px;
+      padding: 10px 36px 6px;
+      gap: 24px;
+      flex-shrink: 0;
+    }
+    .hero-left {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .hero-logo-img {
+      height: 260px;
+      width: auto;
+      display: block;
+      opacity: 0.92;
+      filter: drop-shadow(0 0 50px rgba(50, 120, 255, 0.40)) drop-shadow(0 0 18px rgba(130, 180, 255, 0.50));
+    }
+    .hero-right {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .hero-headline {
+      font-size: 30px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.025em;
+      line-height: 1.15;
+      color: #FFFFFF;
+      white-space: nowrap;
+    }
+    .hero-cta-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 20px 24px;
+      background: rgba(50, 110, 225, 0.22);
+      border: 1px solid rgba(120, 185, 255, 0.42);
+      border-radius: 16px;
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.14),
+        inset 0 -1px 0 rgba(0,0,0,0.14),
+        0 8px 28px rgba(30, 80, 200, 0.28);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      color: #FFFFFF;
+      font-family: inherit;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.2s cubic-bezier(0.23, 1, 0.32, 1), border-color 0.2s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.2s cubic-bezier(0.23, 1, 0.32, 1), transform 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+      -webkit-app-region: no-drag;
+    }
+    .hero-cta-btn:hover {
+      background: rgba(50, 110, 225, 0.34);
+      border-color: rgba(140, 200, 255, 0.58);
+      transform: translateY(-2px);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.18),
+        inset 0 -1px 0 rgba(0,0,0,0.16),
+        0 14px 36px rgba(30, 80, 200, 0.42);
+    }
+    .hero-cta-btn:active { transform: scale(0.97); }
+    .hero-cta-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .hero-cta-header .ti { font-size: 20px; color: #7EB8FF; }
+    .hero-cta-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: #FFFFFF;
+    }
+    .hero-cta-desc {
+      font-size: 12px;
+      color: rgba(255,255,255,0.6);
+      line-height: 1.55;
+      letter-spacing: 0.01em;
+      font-weight: 400;
+      max-width: 313px;
+    }
+    .drop-zone.loading { opacity: 0.6; pointer-events: none; }
+
+    /* ── Micro-stats banner ────────────────────────────────────────────────── */
+    .micro-stats {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      width: 100%;
+      flex-shrink: 0;
+      padding: 16px 36px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      background: rgba(0,0,0,0.12);
+    }
+    .micro-stat {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 40px;
+      font-size: 13.5px;
+      color: rgba(255,255,255,0.45);
+      white-space: nowrap;
+    }
+    .micro-stat strong {
+      color: rgba(255,255,255,0.85);
+      font-weight: 600;
+    }
+    .micro-stat .ti {
+      font-size: 15px;
+      color: #3A6090;
+    }
+    .micro-stat-sep {
+      width: 1px;
+      height: 20px;
+      background: rgba(255,255,255,0.08);
+      flex-shrink: 0;
     }
 
     /* ── Recent banner ─────────────────────────────────────────────────────── */
@@ -28,8 +149,8 @@
       width: 100%;
       display: none;
       flex-direction: column;
-      justify-content: center;
-      gap: 10px;
+      justify-content: flex-start;
+      gap: 0;
       padding-bottom: 8px;
       overflow: hidden;
     }
@@ -39,7 +160,7 @@
       font-size: 10px;
       font-weight: 600;
       letter-spacing: 0.09em;
-      color: #3A6090;
+      color: #7FB8FF;
       padding: 0 40px;
     }
 
@@ -59,7 +180,7 @@
       display: flex;
       gap: 10px;
       width: max-content;
-      animation: bannerScroll 35s linear infinite;
+      animation: bannerScroll 80.5s linear infinite;
       padding: 4px 0;
     }
     .banner-items:hover { animation-play-state: paused; }
@@ -79,6 +200,7 @@
       object-fit: cover;
       display: block;
     }
+    .banner-thumb-placeholder { cursor: default; opacity: 0.55; }
     .banner-thumb::after {
       content: '';
       position: absolute;
@@ -104,100 +226,137 @@
       text-overflow: ellipsis;
     }
 
-    /* ── Logo ──────────────────────────────────────────────────────────────── */
-    .logo-mark {
-      display: flex;
-      gap: 5px;
-      align-items: flex-end;
-      margin-bottom: 12px;
-    }
-    .logo-dot { border-radius: 50%; flex-shrink: 0; }
 
-    .wordmark {
-      margin-bottom: 4px;
+    /* ── Settings FAQ section ──────────────────────────────────────────────── */
+    .faq-toggle {
+      display: flex; align-items: center; justify-content: space-between;
+      cursor: pointer; padding: 4px 0;
     }
-    .wordmark img {
-      height: 120px;
-      width: auto;
-      display: block;
-      margin: 0 auto;
-    }
+    .faq-toggle:hover .setting-label { color: #6A9FD4; }
+    .faq-toggle .faq-chevron { transition: transform 0.2s; }
+    .faq-toggle.open .faq-chevron { transform: rotate(180deg); }
+    .settings-faq-items { display: none; }
+    .settings-faq-items.open { display: block; }
 
-    .tagline {
-      font-size: 13px;
-      color: #6A9FD4;
-      margin-bottom: 36px;
-    }
+    /* ── Prompt panel ──────────────────────────────────────────────────────── */
+    #prompt-content { display: none; }
+    #prompt-content.visible { display: flex; flex-direction: column; gap: 16px; }
 
-    /* ── Mode cards ────────────────────────────────────────────────────────── */
-    .mode-row {
-      display: flex;
-      gap: 12px;
-      width: 100%;
-    }
+    #prompt-body { overflow: hidden; }
 
-    .mode-card {
-      flex: 1;
-      border-radius: 16px;
-      padding: 32px 22px 28px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      cursor: pointer;
+    .prompt-separator {
       position: relative;
-      background: rgba(50, 110, 225, 0.2);
-      border: 1px solid rgba(120, 185, 255, 0.28);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.18),
-        inset 0 -1px 0 rgba(0,0,0,0.18),
-        0 8px 28px rgba(30, 80, 200, 0.2);
-      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-      transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
-      text-align: center;
-      -webkit-app-region: no-drag;
-    }
-    .mode-card:hover {
-      background: rgba(50, 110, 225, 0.34);
-      border-color: rgba(120, 185, 255, 0.48);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.22),
-        inset 0 -1px 0 rgba(0,0,0,0.18),
-        0 10px 32px rgba(30, 80, 200, 0.35);
-    }
-    .drop-zone.loading { opacity: 0.6; pointer-events: none; }
-
-    .trip-mode-card { /* same as single day */ }
-
-    .glass-shine {
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 50%;
-      border-radius: 16px 16px 0 0;
-      background: rgba(255,255,255,0.04);
+      height: 30px;
+      flex-shrink: 0;
       pointer-events: none;
     }
+    .prompt-separator::before {
+      content: '';
+      position: absolute;
+      left: 0; right: 0;
+      top: 50%; height: 1px;
+      transform: translateY(-50%);
+      background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255,255,255,0.55) 12%,
+        rgba(255,255,255,0.55) 88%,
+        transparent 100%
+      );
+    }
+    .prompt-separator::after {
+      content: '';
+      position: absolute;
+      left: 0; right: 0;
+      top: 0; bottom: 0;
+      background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255,255,255,0.10) 12%,
+        rgba(255,255,255,0.18) 50%,
+        rgba(255,255,255,0.10) 88%,
+        transparent 100%
+      );
+      filter: blur(6px);
+    }
 
-    .mode-icon       { font-size: 30px; color: #5B9EF0; margin-bottom: 2px; }
-    .mode-card-title { font-size: 15px; font-weight: 700; color: #FFFFFF; text-transform: uppercase; letter-spacing: 0.06em; }
-    .mode-card-desc  { font-size: 12px; color: #6A9FD4; line-height: 1.5; }
+    .notepad-section {
+      display: flex; flex-direction: column;
+      flex: 1; min-height: 0; gap: 8px;
+      margin-top: 4px;
+    }
+    .notepad-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #7FB8FF;
+      flex-shrink: 0;
+    }
+    .notepad-field {
+      position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column;
+    }
+    .notepad-textarea {
+      flex: 1; min-height: 0;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px; padding: 12px 44px 12px 14px;
+      color: #FFF; font-size: 13px; font-family: inherit;
+      resize: none; outline: none; line-height: 1.6;
+      transition: border-color 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    .notepad-textarea::placeholder { color: #3A6090; }
+    .notepad-textarea:focus { border-color: rgba(91,158,240,0.4); }
+    .notepad-mic {
+      position: absolute; right: 10px; top: 10px;
+      width: 28px; height: 28px; border-radius: 8px;
+      background: none; border: none; cursor: pointer;
+      color: #3A6090; font-size: 15px;
+      display: flex; align-items: center; justify-content: center;
+      transition: color 0.15s, background 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    .notepad-mic:hover { color: #5B9EF0; background: rgba(91,158,240,0.1); }
+    .notepad-mic.listening { color: #E05C5C; background: rgba(224,92,92,0.12); animation: pulse-mic 1s infinite; }
+    @keyframes pulse-mic { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+
+    /* ── Today's prompt card ───────────────────────────────────────────────── */
+    .prompt-card {
+      display: none;
+      width: calc(100% - 80px); max-width: 420px;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      margin: 20px auto 20px;
+      gap: 10px;
+      flex-direction: column;
+    }
+    .prompt-card.visible { display: flex; }
+    .prompt-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #7FB8FF;
+      text-align: center;
+    }
+    .prompt-row {
+      display: flex; gap: 10px; align-items: flex-start;
+    }
+    .prompt-icon { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
+    .prompt-narration { font-size: 13px; color: #B8D0EE; line-height: 1.6; }
+    .prompt-filming   { font-size: 12px; color: #3A6090; line-height: 1.5; }
+    .prompt-filming strong { color: #5B9EF0; }
+
 
     /* ── Filming guide ─────────────────────────────────────────────────────── */
     .guide-act {
       display: flex; flex-direction: column; gap: 4px;
       padding: 14px 16px;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 12px;
+      background: #061422;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 14px;
     }
-    .guide-act-num   { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: #3A6090; }
+    .guide-act-num   { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: #7FB8FF; }
     .guide-act-title { font-size: 14px; font-weight: 700; color: #FFF; text-transform: uppercase; letter-spacing: 0.06em; }
     .guide-act-desc  { font-size: 12px; color: #6A9FD4; line-height: 1.6; margin-top: 4px; }
 
     /* ── FAQ ─────────────────────────────────────────────────────────────── */
     .faq-section-label {
       font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
-      color: #3A6090; margin-top: 18px; margin-bottom: 4px;
+      color: #7FB8FF; margin-top: 18px; margin-bottom: 4px;
     }
     .faq-item { border-bottom: 1px solid rgba(255,255,255,0.06); }
     .faq-question {
@@ -253,6 +412,75 @@
     }
 
     /* ── Credits bar ───────────────────────────────────────────────────────── */
+    /* ── Slice Streak ──────────────────────────────────────────────────────── */
+    #streak-section {
+      display: none;
+      position: relative;
+      flex-shrink: 0;
+      height: 30px;
+      align-items: center;
+      justify-content: center;
+      margin: 40px 0 40px;
+    }
+    #streak-section.visible { display: flex; }
+
+    .streak-flare {
+      position: absolute;
+      top: 50%; left: 0; right: 0;
+      height: 50px;
+      transform: translateY(-50%);
+      pointer-events: none;
+    }
+    /* Tight bright core line — fades out around the text in the center */
+    .streak-flare::before {
+      content: '';
+      position: absolute;
+      left: 0; right: 0;
+      top: 50%; height: 1px;
+      transform: translateY(-50%);
+      background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255,255,255,0.0)  5%,
+        rgba(255,255,255,0.55) 35%,
+        rgba(255,255,255,0.0)  44%,
+        rgba(255,255,255,0.0)  56%,
+        rgba(255,255,255,0.55) 65%,
+        rgba(255,255,255,0.0)  95%,
+        transparent 100%
+      );
+    }
+    /* Wide soft halo */
+    .streak-flare::after {
+      content: '';
+      position: absolute;
+      left: 0; right: 0;
+      top: 0; bottom: 0;
+      background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255,255,255,0.0)  8%,
+        rgba(255,255,255,0.10) 40%,
+        rgba(255,255,255,0.18) 50%,
+        rgba(255,255,255,0.10) 60%,
+        rgba(255,255,255,0.0)  92%,
+        transparent 100%
+      );
+      filter: blur(6px);
+    }
+
+    .streak-label {
+      position: relative;
+      z-index: 1;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      color: rgba(255,255,255,0.95);
+      text-transform: uppercase;
+      text-shadow:
+        0 0 6px  rgba(255,255,255,1.0),
+        0 0 18px rgba(255,255,255,0.8),
+        0 0 45px rgba(255,255,255,0.4);
+    }
+
     .credits-bar {
       display: flex;
       align-items: center;
@@ -260,17 +488,30 @@
       padding: 16px 40px 24px;
       border-top: 0.5px solid #0D2540;
       flex-shrink: 0;
+      gap: 16px;
     }
-    .credits-left  { display: flex; align-items: center; gap: 8px; }
+    .credits-left  { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
     .credits-pip   { width: 8px; height: 8px; border-radius: 50%; background: #5B9EF0; flex-shrink: 0; }
     .credits-label { font-size: 12px; color: #3A6090; }
     .credits-count { font-size: 12px; font-weight: 500; color: #6A9FD4; }
     .credits-buy   {
       font-size: 12px; color: #5B9EF0;
       background: none; border: none; cursor: pointer;
-      padding: 0; font-family: inherit;
+      padding: 0; font-family: inherit; flex-shrink: 0;
     }
     .credits-buy:hover { text-decoration: underline; }
+    .social-blurb {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 11px; color: #3A6090;
+      flex: 1; justify-content: center;
+    }
+    .social-blurb-dot { width: 3px; height: 3px; border-radius: 50%; background: #1E3A5A; flex-shrink: 0; }
+    .social-blurb a {
+      color: #5B9EF0; text-decoration: none; font-weight: 500;
+    }
+    .social-blurb a:hover { text-decoration: underline; }
+    .social-ig-link { font-size: 18px; line-height: 1; text-decoration: none !important; color: #5B9EF0; vertical-align: middle; position: relative; top: -1px; }
+    .social-ig-link:hover { color: #90C4FF; }
 
     /* ── Settings panel ────────────────────────────────────────────────────── */
     .settings-overlay {
@@ -318,7 +559,7 @@
     .settings-body::-webkit-scrollbar { display: none; }
 
     .setting-group { display: flex; flex-direction: column; gap: 8px; }
-    .setting-label { font-size: 11px; color: #3A6090; letter-spacing: 0.05em; }
+    .setting-label { font-size: 11px; color: #7FB8FF; letter-spacing: 0.05em; }
     .setting-input {
       width: 100%; background: rgba(255,255,255,0.07);
       border: 1px solid rgba(255,255,255,0.12);
@@ -339,26 +580,28 @@
       background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12);
       border-radius: 8px; color: #6A9FD4; font-size: 12px;
       font-family: inherit; padding: 10px 14px; cursor: pointer; white-space: nowrap;
-      transition: background 0.15s;
+      transition: background 0.2s cubic-bezier(0.23, 1, 0.32, 1), transform 0.2s cubic-bezier(0.23, 1, 0.32, 1);
     }
     .setting-btn:hover { background: rgba(255,255,255,0.13); }
+    .setting-btn:active { transform: scale(0.97); }
 
     .save-btn {
       width: 100%; padding: 12px;
       background: rgba(50, 110, 225, 0.52);
-      border: 1px solid rgba(120, 185, 255, 0.38);
+      border: 1px solid rgba(120, 185, 255, 0.42);
       border-radius: 10px;
       box-shadow: 0 1px 0 rgba(255,255,255,0.22) inset, 0 -1px 0 rgba(0,0,0,0.15) inset, 0 8px 28px rgba(30, 80, 200, 0.35);
       backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
       color: #FFFFFF; font-size: 14px; font-weight: 500;
       font-family: inherit; cursor: pointer;
-      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+      transition: background 0.2s cubic-bezier(0.23, 1, 0.32, 1), border-color 0.2s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.2s cubic-bezier(0.23, 1, 0.32, 1), transform 0.2s cubic-bezier(0.23, 1, 0.32, 1);
     }
     .save-btn:hover {
       background: rgba(30, 95, 200, 0.42);
-      border-color: rgba(91, 158, 240, 0.38);
+      border-color: rgba(91, 158, 240, 0.42);
       box-shadow: 0 1px 0 rgba(255,255,255,0.14) inset, 0 10px 28px rgba(20, 60, 160, 0.4);
     }
+    .save-btn:active { transform: scale(0.97); }
 
     .api-status {
       display: flex; align-items: center; gap: 6px;
@@ -412,6 +655,52 @@
       border-radius: 50%; background: #fff; top: 2px; left: 2px; transition: left 0.2s; }
     .toggle-cb:checked { background: #1E5FC8; }
     .toggle-cb:checked::after { left: 18px; }
+
+    /* ── Opening intro splash ─────────────────────────────────────────────── */
+    #intro-splash {
+      display: none; /* JS activates only on first open */
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    #intro-splash.active { display: flex; pointer-events: all; }
+    #intro-splash.done   { opacity: 0; transition: opacity 0.7s ease; pointer-events: none; }
+
+    #intro-logo {
+      height: 260px; width: auto; display: block;
+      opacity: 0;
+    }
+    @keyframes introLogoFadeOut {
+      from { opacity: 1; transform: scale(1); }
+      to   { opacity: 0; transform: scale(1.05); }
+    }
+    #intro-splash.logo-out #intro-logo {
+      animation: introLogoFadeOut 0.55s ease-in forwards;
+    }
+
+    #main-content {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      opacity: 0;
+      transition: opacity 0.7s ease;
+    }
+    #main-content.visible { opacity: 1; }
+
+    .scroll-body {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      scrollbar-width: none;
+      display: flex;
+      flex-direction: column;
+    }
+    .scroll-body::-webkit-scrollbar { display: none; }
   </style>
 </head>
 <body>
@@ -420,6 +709,13 @@
     <!-- Inner panel with animated background -->
     <div class="inner" id="inner">
       <canvas id="orbs"></canvas>
+
+      <!-- Intro splash — full-screen logo, fades out after orb animation -->
+      <div id="intro-splash">
+        <img id="intro-logo" src="/assets/logo-white.png" alt="Slice of Life">
+      </div>
+
+      <div id="main-content">
 
       <!-- Title bar -->
       <div class="title-bar">
@@ -431,58 +727,74 @@
         <span class="app-name">Slice of Life</span>
         <div style="display:flex;gap:14px;-webkit-app-region:no-drag;">
           <i class="ti ti-file-text settings-icon" aria-label="Filming guide" onclick="openGuide()" title="How to film"></i>
-          <i class="ti ti-info-circle settings-icon" aria-label="FAQ" onclick="openFaq()" title="FAQ"></i>
+          <i class="ti ti-writing settings-icon" aria-label="Today's Prompt" onclick="openPrompt()" title="Today's Prompt"></i>
           <i class="ti ti-settings settings-icon" aria-label="Settings" onclick="openSettings()"></i>
         </div>
       </div>
 
+      <div class="scroll-body">
+
       <div class="content">
 
-        <div class="wordmark"><img src="/assets/logo-white.png" alt="Slice of Life"></div>
-        <div class="tagline">Document your day. Watch it back.</div>
+        <!-- Left: large logo -->
+        <div class="hero-left">
+          <img src="/assets/logo-white.png" alt="Slice of Life" class="hero-logo-img">
+        </div>
 
-        <!-- Mode cards -->
-        <div class="mode-row">
-
-          <div class="mode-card" id="drop-zone" onclick="pickMacFolder('single')">
-            <div class="glass-shine"></div>
-            <i class="ti ti-clock mode-icon"></i>
-            <div class="mode-card-title">Single Day</div>
-            <div class="mode-card-desc">One day of footage — narrated by you, assembled automatically into a Slice.</div>
+        <!-- Right: headline + CTA -->
+        <div class="hero-right">
+          <div class="hero-headline">
+            <span class="gradient-text">Document your day.</span><br>
+            Watch it back.
           </div>
 
-          <div class="mode-card trip-mode-card" onclick="pickMacFolder('trip')">
-            <div class="glass-shine"></div>
-            <i class="ti ti-map-2 mode-icon"></i>
-            <div class="mode-card-title">Trip</div>
-            <div class="mode-card-desc">Multi-day adventure — auto-chaptered by day into a full story arc.</div>
+          <button class="hero-cta-btn drop-zone" id="drop-zone" onclick="pickMacFolder('single')">
+            <div class="hero-cta-header">
+              <i class="ti ti-video"></i>
+              <span class="hero-cta-title">Build Your Slice</span>
+            </div>
+            <div class="hero-cta-desc">Drop in your footage — one day or many. Narrated by you, assembled automatically into a Slice.</div>
+          </button>
+
+          <!-- Offline mode notice (shown when no internet or no API key) -->
+          <div id="offline-notice" style="display:none;width:100%;padding:10px 14px;background:rgba(192,160,80,0.10);border:1px solid rgba(192,160,80,0.30);border-radius:10px;font-size:12px;color:#C0A080;line-height:1.5;">
+            <strong>Offline mode</strong> — AI clip analysis is unavailable. Slice of Life will use audio heuristics to select narration clips. Results may be less precise than usual.
           </div>
 
-        </div>
+          <!-- Last used folder chip -->
+          <div id="last-folder-chip" onclick="useLastFolder()" style="display:none; align-items:center; gap:8px; cursor:pointer; padding:8px 14px; border-radius:20px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); font-size:12px; color:#6A9FD4; -webkit-app-region:no-drag; transition:background 0.15s;">
+            <i class="ti ti-history" style="font-size:14px;"></i>
+            <span>Last used: <strong id="last-folder-name" style="color:#A8C8F0;"></strong></span>
+            <span style="color:#3A6090; font-size:11px;">→ use again</span>
+          </div>
 
-        <!-- Offline mode notice (shown when no internet or no API key) -->
-        <div id="offline-notice" style="display:none;width:100%;max-width:420px;padding:10px 14px;background:rgba(192,160,80,0.10);border:1px solid rgba(192,160,80,0.30);border-radius:10px;font-size:12px;color:#C0A080;text-align:center;line-height:1.5;margin-top:12px;">
-          <strong>Offline mode</strong> — AI clip analysis is unavailable. Slice of Life will use audio heuristics to select narration clips. Results may be less precise than usual.
+          <!-- Status / scan result -->
+          <div id="journal-scan" style="display:none;padding:10px 14px;background:rgba(30,95,200,0.08);border:1px solid rgba(30,95,200,0.2);border-radius:10px;font-size:13px;color:#6A9FD4;width:100%;"></div>
         </div>
-
-        <!-- Last used folder chip -->
-        <div id="last-folder-chip" onclick="useLastFolder()" style="display:none; align-items:center; gap:8px; cursor:pointer; padding:8px 14px; border-radius:20px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); font-size:12px; color:#6A9FD4; -webkit-app-region:no-drag; transition:background 0.15s;">
-          <i class="ti ti-history" style="font-size:14px;"></i>
-          <span>Last used: <strong id="last-folder-name" style="color:#A8C8F0;"></strong></span>
-          <span style="color:#3A6090; font-size:11px;">→ use again</span>
-        </div>
-
-        <!-- Status / scan result -->
-        <div id="journal-scan" style="display:none;padding:10px 14px;background:rgba(30,95,200,0.08);border:1px solid rgba(30,95,200,0.2);border-radius:10px;font-size:13px;color:#6A9FD4;text-align:center;margin-top:4px;width:100%;"></div>
 
       </div><!-- /content -->
 
+      <!-- Micro-stats banner -->
+      <div class="micro-stats" id="micro-stats">
+        <div class="micro-stat"><i class="ti ti-movie"></i><span><strong id="stat-slices">0</strong> Slices made</span></div>
+        <div class="micro-stat-sep"></div>
+        <div class="micro-stat"><i class="ti ti-stack-2"></i><span><strong id="stat-clips">0</strong> clips sorted</span></div>
+        <div class="micro-stat-sep"></div>
+        <div class="micro-stat"><i class="ti ti-clock"></i><span><strong id="stat-footage">—</strong> raw footage</span></div>
+      </div>
+
       <!-- Recent videos banner -->
       <div class="recent-section" id="recent-section">
+        <div id="streak-section">
+          <div class="streak-flare"></div>
+          <span class="streak-label" id="streak-label"></span>
+        </div>
         <div class="banner-track">
           <div class="banner-items" id="banner-items"></div>
         </div>
       </div>
+
+      </div><!-- /scroll-body -->
 
       <!-- Credits bar -->
       <div class="credits-bar">
@@ -492,8 +804,15 @@
           <span class="credits-count" id="credits-count">— remaining</span>
         </div>
         <button class="credits-buy">Top up</button>
-        <span style="font-size:11px;color:#2A4A6A;">Private by design — only thumbnails are sent for AI analysis, never your originals</span>
+
+        <div class="social-blurb">
+          <a href="#" onclick="event.preventDefault(); window.electronAPI.openExternal('https://forms.gle/vXG9oHvTDAWXFqFN7')">Submit your Slice</a> and get featured on
+          <a href="#" class="social-ig-link" onclick="event.preventDefault(); window.electronAPI.openExternal('https://www.instagram.com/sliceoflife_app/')" title="@sliceoflife.app on Instagram"><i class="ti ti-brand-instagram"></i></a>
+        </div>
+
       </div>
+
+      </div><!-- /main-content -->
 
     </div><!-- /inner -->
 
@@ -528,92 +847,80 @@
           <div class="setting-sub" style="margin-top:6px;">Removes all thumbnails from the home screen.</div>
         </div>
 
+        <div class="setting-group" style="margin-top:8px;">
+          <div class="setting-label">DIAGNOSTICS</div>
+          <button class="setting-btn" id="view-render-log-btn" style="width:100%" onclick="viewRenderLog()">View last render log</button>
+          <div class="setting-sub" style="margin-top:6px;">Opens the log from your most recent render in a text editor.</div>
+        </div>
+
+        <div class="setting-group" style="margin-top:8px;">
+          <button class="setting-btn faq-toggle" style="width:100%;display:flex;align-items:center;justify-content:space-between;" onclick="toggleSettingsFaq(this)">
+            <span>Frequently Asked Questions</span>
+            <i class="ti ti-chevron-down faq-chevron"></i>
+          </button>
+          <div class="settings-faq-items" id="settings-faq-items">
+            <div class="faq-section-label" style="margin-top:10px;">GETTING STARTED</div>
+            <div class="faq-item"><div class="faq-question" onclick="toggleFaq(this)">What kind of footage does this work with?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">Any video you shoot on your iPhone, Android, DSLR, or drone. The more variety the better — a mix of you talking to camera and b-roll of what's happening around you gives the best results.</div></div>
+            <div class="faq-item"><div class="faq-question" onclick="toggleFaq(this)">Do I need to talk to camera?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">No — turn on Highlight Reel mode and the app will cut together your best b-roll shots automatically. But if you do talk to camera, even just for 30–60 seconds, your Slice will have a narrative backbone that makes it feel like a real story.</div></div>
+            <div class="faq-item"><div class="faq-question" onclick="toggleFaq(this)">How long should my clips be?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">Anything works. Clips under 2 seconds are skipped automatically. For narration, 30 seconds to a few minutes is ideal. For b-roll, 5–15 seconds per shot gives the best material to work with.</div></div>
+            <div class="faq-item"><div class="faq-question" onclick="toggleFaq(this)">What file formats are supported?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">MP4, MOV, M4V, AVI, MKV, MTS, M2TS, and WEBM. If your iPhone, DSLR, or camera shot it, it almost certainly works.</div></div>
+            <div class="faq-section-label">THE OUTPUT</div>
+            <div class="faq-item"><div class="faq-question" onclick="toggleFaq(this)">Why did some of my clips get cut out?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">The app scores every clip for quality — brightness, sharpness, and visual interest. Clips that are too dark, blurry, or very short get filtered out automatically. Use Director's Notes on the configure screen to tell it what to include or skip.</div></div>
+            <div class="faq-item"><div class="faq-question" onclick="toggleFaq(this)">Does it work for multi-day trips?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">Yes — just drop in the whole folder. Slice automatically detects multiple days of footage, groups clips by calendar day, and builds a story arc across all of them into one video.</div></div>
+            <div class="faq-section-label">TECHNICAL</div>
+            <div class="faq-item"><div class="faq-question" onclick="toggleFaq(this)">Does my footage leave my computer?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">Your original video files never leave your machine. To analyze your clips, small frame samples are sent to the cloud for AI processing. For narration, short transcript excerpts are also processed. Your raw footage stays local at all times.</div></div>
+            <div class="faq-item"><div class="faq-question" onclick="toggleFaq(this)">Why is it taking so long to render?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">Render time depends on how much footage you have and its resolution. 4K footage is significantly slower than 1080p. A typical render takes 3–10 minutes. Multi-day folders take longer because each day is processed individually.</div></div>
+            <div class="faq-section-label">EDITING</div>
+            <div class="faq-item"><div class="faq-question" onclick="toggleFaq(this)">Can I edit the result in Premiere or Final Cut?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">Yes — every render automatically exports an XML file to your Downloads folder. Open it in Premiere Pro or Final Cut Pro to get a fully laid-out timeline with your original high-quality source clips, ready to refine.</div></div>
+            <div class="faq-item"><div class="faq-question" onclick="toggleFaq(this)">What is the XML export for?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">It gives editors a head start. Instead of sorting through raw footage yourself, you get a rough cut in your editing software with all clips placed and synced. Tweak from there.</div></div>
+            <div class="faq-item"><div class="faq-question" onclick="toggleFaq(this)">Can I re-render with different settings?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">Yes. On the results screen after any render, there's a Re-edit button. Change the orientation, caption style, or other settings and re-render in seconds — without waiting for the AI to re-analyze your footage.</div></div>
+            <div class="faq-section-label">ACCOUNT</div>
+            <div class="faq-item" style="border-bottom:none;"><div class="faq-question" onclick="toggleFaq(this)">Can I use my own Anthropic API key?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">Yes. Go to Settings and paste your key in the API Key field. The app will use it for all AI processing.</div></div>
+          </div>
+        </div>
+
         <button class="save-btn" onclick="saveSettings()">Save</button>
 
       </div>
     </div>
   </div><!-- /settings-overlay -->
 
-  <!-- FAQ overlay -->
-  <div class="settings-overlay" id="faq-overlay" onclick="closeFaqOnOverlay(event)">
-    <div class="settings-panel" id="faq-panel">
+  <!-- Today's Prompt overlay -->
+  <div class="settings-overlay" id="prompt-overlay" onclick="closePromptOnOverlay(event)">
+    <div class="settings-panel" id="prompt-panel">
       <div class="settings-header">
-        <div class="settings-title">FAQ</div>
-        <button class="settings-close" onclick="event.stopPropagation(); closeFaq()"><i class="ti ti-x"></i></button>
+        <div>
+          <div class="settings-title">Today's Prompt</div>
+          <div style="font-size:10px;color:#3A6090;letter-spacing:0.04em;margin-top:3px;">Personalized to your history</div>
+        </div>
+        <button class="settings-close" onclick="event.stopPropagation(); closePrompt()"><i class="ti ti-x"></i></button>
       </div>
-      <div class="settings-body" style="gap:0;">
-
-        <div class="faq-section-label">GETTING STARTED</div>
-
-        <div class="faq-item">
-          <div class="faq-question" onclick="toggleFaq(this)">What kind of footage does this work with?<i class="ti ti-chevron-down faq-chevron"></i></div>
-          <div class="faq-answer">Any video you shoot on your iPhone, Android, DSLR, or drone. The more variety the better — a mix of you talking to camera and b-roll of what's happening around you gives the best results.</div>
+      <div class="settings-body" id="prompt-body">
+        <div id="prompt-loading" style="font-size:13px;color:#3A6090;text-align:center;padding:20px 0;">Generating your prompt…</div>
+        <div id="prompt-content">
+          <div class="prompt-row">
+            <span class="prompt-icon">🎙</span>
+            <div class="prompt-narration" id="prompt-narration"></div>
+          </div>
+          <div style="height:1px;background:rgba(255,255,255,0.06);"></div>
+          <div class="prompt-row">
+            <span class="prompt-icon">📷</span>
+            <div class="prompt-filming"><strong>Film:</strong> <span id="prompt-filming"></span></div>
+          </div>
         </div>
 
-        <div class="faq-item">
-          <div class="faq-question" onclick="toggleFaq(this)">Do I need to talk to camera?<i class="ti ti-chevron-down faq-chevron"></i></div>
-          <div class="faq-answer">No — turn on Highlight Reel mode and the app will cut together your best b-roll shots automatically. But if you do talk to camera, even just for 30–60 seconds, your Slice will have a narrative backbone that makes it feel like a real story.</div>
+        <div class="prompt-separator"></div>
+
+        <div class="notepad-section">
+          <div class="notepad-label">NOTEPAD</div>
+          <div class="notepad-field">
+            <textarea class="notepad-textarea" id="notepad-textarea"
+              placeholder="Write a script, plan your day, or jot anything you want to reference while filming…"></textarea>
+            <button class="notepad-mic" id="notepad-mic-btn" onclick="toggleNotepadMic()" title="Speak to notepad">
+              <i class="ti ti-microphone"></i>
+            </button>
+          </div>
         </div>
-
-        <div class="faq-item">
-          <div class="faq-question" onclick="toggleFaq(this)">How long should my clips be?<i class="ti ti-chevron-down faq-chevron"></i></div>
-          <div class="faq-answer">Anything works. Clips under 2 seconds are skipped automatically. For narration, 30 seconds to a few minutes is ideal. For b-roll, 5–15 seconds per shot gives the best material to work with.</div>
-        </div>
-
-        <div class="faq-item">
-          <div class="faq-question" onclick="toggleFaq(this)">What file formats are supported?<i class="ti ti-chevron-down faq-chevron"></i></div>
-          <div class="faq-answer">MP4, MOV, M4V, AVI, MKV, MTS, M2TS, and WEBM. If your iPhone, DSLR, or camera shot it, it almost certainly works.</div>
-        </div>
-
-        <div class="faq-section-label">THE OUTPUT</div>
-
-        <div class="faq-item">
-          <div class="faq-question" onclick="toggleFaq(this)">Why did some of my clips get cut out?<i class="ti ti-chevron-down faq-chevron"></i></div>
-          <div class="faq-answer">The app scores every clip for quality — brightness, sharpness, and visual interest. Clips that are too dark, blurry, or very short get filtered out automatically. Use Director's Notes on the configure screen to tell it what to include or skip.</div>
-        </div>
-
-        <div class="faq-item">
-          <div class="faq-question" onclick="toggleFaq(this)">What's the difference between Single Day and Trip?<i class="ti ti-chevron-down faq-chevron"></i></div>
-          <div class="faq-answer">Single Day is for one day of footage — it builds a single narrative arc. Trip is for multi-day adventures — it groups footage by calendar day and builds a story arc across all days.</div>
-        </div>
-
-        <div class="faq-section-label">TECHNICAL</div>
-
-        <div class="faq-item">
-          <div class="faq-question" onclick="toggleFaq(this)">Does my footage leave my computer?<i class="ti ti-chevron-down faq-chevron"></i></div>
-          <div class="faq-answer">No. Your video files never leave your machine. The only thing sent to the cloud is a small thumbnail frame from each clip — used to analyse what's in the shot. Your originals stay local at all times.</div>
-        </div>
-
-
-        <div class="faq-item">
-          <div class="faq-question" onclick="toggleFaq(this)">Why is it taking so long to render?<i class="ti ti-chevron-down faq-chevron"></i></div>
-          <div class="faq-answer">Render time depends on how much footage you have and its resolution. 4K footage is significantly slower than 1080p. A typical single-day render takes 3–10 minutes. Trip mode takes longer because it processes multiple days.</div>
-        </div>
-
-        <div class="faq-section-label">EDITING</div>
-
-        <div class="faq-item">
-          <div class="faq-question" onclick="toggleFaq(this)">Can I edit the result in Premiere or Final Cut?<i class="ti ti-chevron-down faq-chevron"></i></div>
-          <div class="faq-answer">Yes — every render automatically exports an XML file to your Downloads folder. Open it in Premiere Pro or Final Cut Pro to get a fully laid-out timeline with your original high-quality source clips, ready to refine.</div>
-        </div>
-
-        <div class="faq-item">
-          <div class="faq-question" onclick="toggleFaq(this)">What is the XML export for?<i class="ti ti-chevron-down faq-chevron"></i></div>
-          <div class="faq-answer">It gives editors a head start. Instead of sorting through raw footage yourself, you get a rough cut in your editing software with all clips placed and synced. Tweak from there.</div>
-        </div>
-
-        <div class="faq-item">
-          <div class="faq-question" onclick="toggleFaq(this)">Can I re-render with different settings?<i class="ti ti-chevron-down faq-chevron"></i></div>
-          <div class="faq-answer">Yes. On the results screen after any render, there's a Re-edit button. Change the orientation, caption style, or other settings and re-render in seconds — without waiting for the AI to re-analyse your footage.</div>
-        </div>
-
-        <div class="faq-section-label">ACCOUNT</div>
-
-        <div class="faq-item" style="border-bottom:none;">
-          <div class="faq-question" onclick="toggleFaq(this)">Can I use my own Anthropic API key?<i class="ti ti-chevron-down faq-chevron"></i></div>
-          <div class="faq-answer">Yes. Go to Settings and paste your key in the API Key field. The app will use it for all AI processing.</div>
-        </div>
-
       </div>
     </div>
   </div>
@@ -670,6 +977,7 @@
   </div><!-- /app-window -->
 
 <script src="/js/orbs.js"></script>
+<script src="/js/sound.js"></script>
   <script src="/js/home.js"></script>
   <script src="/js/settings.js"></script>
 </body>

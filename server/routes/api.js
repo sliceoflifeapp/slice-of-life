@@ -4,6 +4,7 @@ const fs        = require('fs');
 const os        = require('os');
 const credits   = require('../lib/credits');
 const analytics = require('../lib/analytics');
+const { getAppDataDir, updateStyleProfile, getStyleDefaults } = require('../lib/app-data');
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 
@@ -16,26 +17,99 @@ router.get('/settings', (req, res) => {
     dns.lookup('api.anthropic.com', err => resolve(!err));
   });
   checkOnline().then(isOnline => {
+    const ownKey    = cfg.anthropicApiKey || '';
+    const logPath   = path.join(getAppDataDir(), 'debug-last-run.log');
+    const logExists = fs.existsSync(logPath);
     res.json({
-      hasOwnApiKey: !!cfg.anthropicApiKey,
-      hasDevKey:    !!process.env.ANTHROPIC_API_KEY,
-      outputFolder: cfg.outputFolder || path.join(os.homedir(), 'Desktop', 'Journals'),
-      openWhenDone: cfg.openWhenDone !== false,
+      hasOwnApiKey:    !!cfg.anthropicApiKey,
+      hasDevKey:       !!process.env.ANTHROPIC_API_KEY,
+      keyHint:         ownKey ? ownKey.slice(0, 8) + '…' : null,
+      outputFolder:    cfg.outputFolder || path.join(os.homedir(), 'Movies', 'Slices'),
+      openWhenDone:    cfg.openWhenDone !== false,
       isOnline,
+      renderLogPath:   logPath,
+      renderLogExists: logExists,
+      styleDefaults:   getStyleDefaults(),
     });
   });
 });
 
 router.post('/settings', (req, res) => {
-  const cfgPath = configPath();
-  const cfg = loadConfig();
-  const { apiKey, outputFolder, openWhenDone } = req.body;
-  if (apiKey        !== undefined) cfg.anthropicApiKey = apiKey;
-  if (outputFolder  !== undefined) cfg.outputFolder    = outputFolder;
-  if (openWhenDone  !== undefined) cfg.openWhenDone    = openWhenDone;
-  fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
-  fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-  res.json({ ok: true });
+  try {
+    const cfgPath = configPath();
+    const cfg = loadConfig();
+    const { apiKey, outputFolder, openWhenDone } = req.body;
+    if (apiKey        !== undefined) cfg.anthropicApiKey = apiKey;
+    if (outputFolder  !== undefined) cfg.outputFolder    = outputFolder;
+    if (openWhenDone  !== undefined) cfg.openWhenDone    = openWhenDone;
+    fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
+    fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+    console.log(`[settings] saved to ${cfgPath} — hasKey=${!!cfg.anthropicApiKey}`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[settings] save failed:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ── Today's prompt ───────────────────────────────────────────────────────────
+
+const PROMPT_FALLBACKS = [
+  { narration: "What's one thing from today you'd want to remember in a year?",        filming: "Where you are right now, anything that felt unremarkable but wasn't" },
+  { narration: "Describe where you are like you're reading it back in 10 years.",      filming: "The space around you, details you'd normally walk past" },
+  { narration: "What surprised you today — even if it was small?",                     filming: "Something you encountered that you almost didn't notice" },
+  { narration: "Who did you spend time with today, and what did you actually talk about?", filming: "The place you were together, something they showed you" },
+  { narration: "What are you in the middle of right now — and how is it going?",       filming: "Your workspace, your tools, whatever you're working with" },
+  { narration: "What feeling kept coming back today, even if you couldn't name it?",   filming: "Something in your environment that matches that energy" },
+  { narration: "What do you want to remember about where you are in life right now?",  filming: "The view from wherever you're standing, something personal nearby" },
+  { narration: "What's something you did today that future you will be glad you documented?", filming: "The moment itself, or wherever you are when you think about it" },
+];
+
+router.get('/prompt/today', async (req, res) => {
+  const todayStr  = new Date().toISOString().slice(0, 10);
+  const cacheFile = path.join(getAppDataDir(), 'prompt-cache.json');
+
+  try {
+    const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    if (cached.date === todayStr) return res.json({ ok: true, ...cached });
+  } catch {}
+
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+  const fallback  = PROMPT_FALLBACKS[dayOfYear % PROMPT_FALLBACKS.length];
+
+  const transcripts = loadExports()
+    .filter(e => e.transcriptExcerpt)
+    .slice(0, 4)
+    .map((e, i) => `Journal ${i + 1}: "${e.transcriptExcerpt}"`);
+
+  const cfg    = loadConfig();
+  const apiKey = cfg.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
+
+  if (!apiKey || !transcripts.length) {
+    return res.json({ ok: true, date: todayStr, ...fallback });
+  }
+
+  try {
+    const Anthropic = require('@anthropic-ai/sdk');
+    const client    = new Anthropic({ apiKey });
+    const msg = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 200,
+      system: `You are a warm, professional personal video journal coach. Keep all suggestions encouraging, constructive, and appropriate for a general audience. Never reference sensitive personal topics, health struggles, conflict, or anything that could feel intrusive or uncomfortable. Focus on everyday moments, personal growth, creativity, and visual storytelling. Always maintain a positive, motivating tone.`,
+      messages: [{ role: 'user', content:
+        `Here are transcript excerpts from someone's recent video journals:\n\n${transcripts.join('\n')}\n\nGenerate a single daily prompt card with two parts:\n1. A narration prompt (what to say to camera) — personal, picks up a thread from their actual life, 1-2 sentences\n2. A filming nudge (what to film) — visual, practical, 1-2 short phrases\n\nRespond ONLY with valid JSON: {"narration": "...", "filming": "..."}\n\nKeep both warm and conversational. The narration should feel like it responds to their specific life, not a generic question.`,
+      }],
+    });
+    const parsed = JSON.parse(msg.content[0].text.trim());
+    if (!parsed.narration || !parsed.filming) throw new Error('bad response');
+    const result = { date: todayStr, narration: parsed.narration, filming: parsed.filming };
+    fs.mkdirSync(getAppDataDir(), { recursive: true });
+    fs.writeFileSync(cacheFile, JSON.stringify(result, null, 2));
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    console.warn('[prompt] generation failed:', err.message);
+    return res.json({ ok: true, date: todayStr, ...fallback });
+  }
 });
 
 // ── Connected devices ─────────────────────────────────────────────────────────
@@ -123,7 +197,8 @@ router.post('/journal/start', (req, res) => {
     const xmlPath = autoExportXML(result, name, pacingParams, pipelineOpts.orientation);
     const renderOpts = { captions: pipelineOpts.captions, captionStyle: pipelineOpts.captionStyle, orientation: pipelineOpts.orientation, pacingParams, pacing: req.body.pacing || null };
     journalJobs.set(jobId, { status: 'done', progress: 100, message: 'Done!', ...result, xmlPath, assemblyPath: result.assemblyPath || null, renderOpts });
-    recordExport(result.videoPath, name, result.assembly, result.thumbPath);
+    updateStyleProfile({ pacing: req.body.pacing, brollStyle: req.body.brollStyle, captions: pipelineOpts.captions, captionStyle: pipelineOpts.captionStyle }, 1);
+    recordExport(result.videoPath, name, result.assembly, result.thumbPath, folderPath, result.transcriptExcerpt, result.footageDates, result.stats?.rawDurationSec, result.stats?.totalClips);
     analytics.track('render_completed', {
       mode: 'single',
       orientation: pipelineOpts.orientation,
@@ -135,7 +210,9 @@ router.post('/journal/start', (req, res) => {
     });
   }).catch(err => {
     if (err.noAroll) {
-      journalJobs.set(jobId, { status: 'no_aroll', progress: 0, message: 'No narration detected.',
+      const logHint = err.debugLogPath ? ` Debug log: ${err.debugLogPath}` : '';
+      journalJobs.set(jobId, { status: 'no_aroll', progress: 0, message: `No narration detected.${logHint}`,
+        debugLogPath: err.debugLogPath || null,
         folderPath, savedOpts: { targetDuration, pacingParams, description,
           captions: pipelineOpts.captions, captionStyle: pipelineOpts.captionStyle,
           orientation: pipelineOpts.orientation } });
@@ -171,83 +248,6 @@ router.get('/journal/scan', async (req, res) => {
 
 // ── Trip pipeline ─────────────────────────────────────────────────────────────
 
-const tripJobs = new Map();
-
-router.post('/trip/start', (req, res) => {
-  const { folderPath, targetDuration, pacingParams, description } = req.body;
-  if (!folderPath) return res.status(400).json({ error: 'folderPath required' });
-  const jobId = `trip-${Date.now()}`;
-  tripJobs.set(jobId, { status: 'running', progress: 0, message: 'Starting…' });
-  res.json({ ok: true, jobId });
-
-  const pipelineOpts = {
-    targetDuration, description,
-    captions:       req.body.captions       || false,
-    captionStyle:   req.body.captionStyle   || 'clean',
-    orientation:    req.body.orientation    || 'landscape',
-    dayTitleCards:  req.body.dayTitleCards  || false,
-    highlightOnly:  req.body.highlightOnly  || false,
-  };
-
-  analytics.track('render_started', {
-    mode: 'trip',
-    orientation: pipelineOpts.orientation,
-    captions: pipelineOpts.captions,
-    targetDuration,
-  });
-
-  const pipeline = require('../lib/trip-pipeline');
-  pipeline.run(folderPath, pipelineOpts, ({ message, progress, detectedResolution }) => {
-    const current = tripJobs.get(jobId) || {};
-    tripJobs.set(jobId, {
-      ...current,
-      status: 'running', progress, message,
-      detectedResolution: detectedResolution || current.detectedResolution || null,
-    });
-  }, pacingParams).then(result => {
-    const name    = path.basename(path.dirname(result.videoPath));
-    const xmlPath = autoExportXML(result, name, pacingParams, pipelineOpts.orientation, result.dayBoundaries);
-    tripJobs.set(jobId, { status: 'done', progress: 100, message: 'Done!', ...result, xmlPath, assemblyPath: result.assemblyPath || null });
-    recordExport(result.videoPath, name, result.assembly, result.thumbPath);
-    analytics.track('render_completed', {
-      mode: 'trip',
-      orientation: pipelineOpts.orientation,
-      captions: pipelineOpts.captions,
-      outputDurationSec: result.outputDurationSec,
-      arollCount: result.stats?.arollCount,
-      brollCount: result.stats?.brollCount,
-      totalClips: result.stats?.totalClips,
-    });
-  }).catch(err => {
-    tripJobs.set(jobId, { status: 'error', progress: 0, message: err.message, error: err.message });
-    analytics.track('render_failed', { mode: 'trip', error: err.message });
-  });
-});
-
-router.get('/trip/status/:jobId', (req, res) => {
-  const job = tripJobs.get(req.params.jobId);
-  if (!job) return res.status(404).json({ error: 'Job not found' });
-  res.json(job);
-});
-
-// Quick scan — returns day count
-router.get('/trip/scan', (req, res) => {
-  const { folderPath } = req.query;
-  if (!folderPath) return res.status(400).json({ error: 'folderPath required' });
-  try {
-    const scanner    = require('../lib/scanner');
-    const VIDEO_EXTS = new Set(['.mp4','.m4v','.mov','.avi','.mkv','.mts','.m2ts','.webm']);
-    const files      = scanner.fullScan(folderPath).filter(f => VIDEO_EXTS.has(f.ext));
-    const days       = new Set(files.map(f => {
-      const stat = require('fs').statSync(f.path);
-      const d    = stat.birthtime && stat.birthtime.getFullYear() > 1970 ? stat.birthtime : stat.mtime;
-      return d.toISOString().slice(0, 10);
-    }));
-    res.json({ clipCount: files.length, dayCount: days.size });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ── Recap ─────────────────────────────────────────────────────────────────────
 
@@ -330,7 +330,7 @@ async function runRecap({ jobId, folderPath, dateFrom, dateTo, recapType, durati
 
     update('Generating recap video…', 30);
     const cfg       = loadConfig();
-    const outputBase = cfg.outputFolder || path.join(os.homedir(), 'Desktop', 'Journals');
+    const outputBase = cfg.outputFolder || path.join(os.homedir(), 'Movies', 'Slices');
     fs.mkdirSync(outputBase, { recursive: true });
     const outPath = path.join(outputBase, `Recap-${Date.now()}.mp4`);
 
@@ -370,7 +370,7 @@ router.post('/export/fcpxml', (req, res) => {
 
 router.get('/journals/all', (req, res) => {
   const cfg        = loadConfig();
-  const outputBase = cfg.outputFolder || path.join(os.homedir(), 'Desktop', 'Journals');
+  const outputBase = cfg.outputFolder || path.join(os.homedir(), 'Movies', 'Slices');
   try {
     if (!fs.existsSync(outputBase)) return res.json({ journals: [] });
     const journals = fs.readdirSync(outputBase, { withFileTypes: true })
@@ -396,11 +396,73 @@ router.get('/journals/text', (req, res) => {
   const { textPath } = req.query;
   if (!textPath) return res.status(400).end();
   const cfg        = loadConfig();
-  const outputBase = cfg.outputFolder || path.join(os.homedir(), 'Desktop', 'Journals');
-  if (!path.resolve(textPath).startsWith(outputBase)) return res.status(403).end();
+  const outputBase = cfg.outputFolder || path.join(os.homedir(), 'Movies', 'Slices');
+  if (!path.resolve(textPath).startsWith(outputBase + path.sep)) return res.status(403).end();
   try {
     res.send(fs.readFileSync(textPath, 'utf8'));
   } catch { res.status(404).end(); }
+});
+
+// ── Lifetime stats (for home micro-stats row) ────────────────────────────────
+// Returns slices (unique rendered videos still on disk), days (unique calendar
+// days with at least one export), and minutes (sum of output video durations).
+
+router.get('/stats', async (req, res) => {
+  try {
+    const allExports = loadExports();
+    const existing   = allExports.filter(e => { try { return e.videoPath && fs.existsSync(e.videoPath); } catch { return false; } });
+
+    const slices = existing.length;
+
+    // Clips sorted = sum of totalClips stored at render time.
+    // Old entries fall back to counting files in the source folder.
+    const scannerStats = require('../lib/scanner');
+    const VIDEO_EXTS_COUNT = new Set(['.mp4','.m4v','.mov','.avi','.mkv','.mts','.m2ts','.webm']);
+    let totalClips = 0;
+    for (const e of allExports) {
+      if (e.clipCount) {
+        totalClips += e.clipCount;
+      } else if (e.folderPath) {
+        try {
+          const files = scannerStats.fullScan(e.folderPath).filter(f => VIDEO_EXTS_COUNT.has(f.ext));
+          totalClips += files.length;
+        } catch {}
+      }
+    }
+
+    // Raw footage = sum of rawDurationSec stored at render time.
+    // New entries have it; old entries fall back to probing the output file.
+    const ffmpeg = require('ffmpeg-static');
+    const { execFile: execFileStats } = require('child_process');
+    const { promisify: promisifyStats } = require('util');
+    const execFileStatsAsync = promisifyStats(execFileStats);
+    let totalRawSec = 0;
+    const VIDEO_EXTS_STATS = new Set(['.mp4','.m4v','.mov','.avi','.mkv','.mts','.m2ts','.webm']);
+    const scanner = require('../lib/scanner');
+    await Promise.all(allExports.map(async e => {
+      if (e.rawDurationSec) {
+        totalRawSec += e.rawDurationSec;
+      } else if (e.folderPath) {
+        // Older entry — probe all source clips in the original folder
+        try {
+          const clips = scanner.fullScan(e.folderPath).filter(f => VIDEO_EXTS_STATS.has(f.ext));
+          await Promise.all(clips.map(async f => {
+            try {
+              const r = await execFileStatsAsync(ffmpeg, ['-i', f.path], { timeout: 4000 }).catch(err => err);
+              const m = (r.stderr || r.message || '').match(/Duration:\s*(\d+):(\d+):([\d.]+)/);
+              if (m) totalRawSec += parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseFloat(m[3]);
+            } catch {}
+          }));
+        } catch {}
+      }
+    }));
+    const rawMin = totalRawSec > 0 ? Math.max(1, Math.round(totalRawSec / 60)) : 0;
+    const footage = rawMin >= 60
+      ? `${Math.floor(rawMin / 60)}h ${rawMin % 60}m`
+      : `${rawMin}m`;
+
+    res.json({ slices, clips: totalClips, footage });
+  } catch { res.json({ slices: 0, clips: 0, footage: '0m' }); }
 });
 
 // ── Recent journals (for home banner) ────────────────────────────────────────
@@ -408,12 +470,16 @@ router.get('/journals/text', (req, res) => {
 router.get('/journals/recent', (req, res) => {
   try {
     // Start with export-log entries (authoritative, have metadata)
-    const fromLog = loadExports()
+    const allExports = loadExports();
+    const fromLog = allExports
       .filter(e => { try { return fs.existsSync(e.videoPath); } catch { return false; } });
 
-    // Sort newest first, then deduplicate by name (date folder) so re-renders
-    // of the same day's footage only appear once in the slideshow.
-    const seenNames = new Set();
+    // Sort newest first, then deduplicate:
+    // - Same exact videoPath → same file, keep newest only
+    // - Same source folderPath → same footage re-rendered, keep newest only
+    // - Different folderPath → genuinely different footage, show both even if same day
+    const seenVideoPaths  = new Set();
+    const seenSrcFolders  = new Set();
     const journals = [...fromLog]
       .sort((a, b) => {
         const ta = a.exportedAt ? new Date(a.exportedAt).getTime() : 0;
@@ -421,23 +487,27 @@ router.get('/journals/recent', (req, res) => {
         return tb - ta;
       })
       .filter(e => {
-        if (seenNames.has(e.name)) return false;
-        seenNames.add(e.name);
+        const vp = path.resolve(e.videoPath);
+        if (seenVideoPaths.has(vp)) return false;
+        if (e.folderPath && seenSrcFolders.has(e.folderPath)) return false;
+        seenVideoPaths.add(vp);
+        if (e.folderPath) seenSrcFolders.add(e.folderPath);
         return true;
       })
       .slice(0, 30)
       .map(e => ({ name: e.name, videoPath: e.videoPath, thumbPath: e.thumbPath || null }));
 
-    res.json({ journals });
-  } catch { res.json({ journals: [] }); }
+    res.json({ journals, streak: calcStreak(allExports), hasHistory: allExports.some(e => e.exportedAt) });
+  } catch { res.json({ journals: [], streak: 0, hasHistory: false }); }
 });
 
-// Clear slideshow history (exports log + thumbnails)
+// Clear slideshow history (thumbnails + display data) but preserve streak dates
 router.post('/journals/clear', (req, res) => {
   try {
-    const exportsLog = path.join(os.homedir(), '.gather', 'exports.json');
-    const thumbDir   = path.join(os.homedir(), '.gather', 'thumb-cache');
-    fs.writeFileSync(exportsLog, '[]', 'utf8');
+    const thumbDir = path.join(getAppDataDir(), 'thumb-cache');
+    // Strip display fields from each entry — keeps exportedAt/name for streak
+    const stripped = loadExports().map(e => ({ name: e.name, exportedAt: e.exportedAt }));
+    fs.writeFileSync(EXPORTS_LOG, JSON.stringify(stripped, null, 2));
     if (fs.existsSync(thumbDir)) {
       for (const f of fs.readdirSync(thumbDir)) {
         try { fs.unlinkSync(path.join(thumbDir, f)); } catch {}
@@ -450,11 +520,33 @@ router.post('/journals/clear', (req, res) => {
 });
 
 // Serve a pre-computed thumbnail by filename (safe: only serves from thumb-cache dir)
-router.get('/journals/thumbfile', (req, res) => {
+// Falls back to generating the thumbnail live if the cached file is missing.
+router.get('/journals/thumbfile', async (req, res) => {
   const { file } = req.query;
   if (!file || file.includes('/') || file.includes('..')) return res.status(400).end();
-  const thumbPath = path.join(os.homedir(), '.gather', 'thumb-cache', file);
-  if (!fs.existsSync(thumbPath)) return res.status(404).end();
+  const thumbPath = path.join(getAppDataDir(), 'thumb-cache', file);
+
+  if (!fs.existsSync(thumbPath)) {
+    // Try to regenerate from the matching export entry
+    const entry = loadExports().find(e => e.videoPath && path.basename(e.videoPath, '.mp4') + '.jpg' === file);
+    if (!entry || !entry.videoPath || !fs.existsSync(entry.videoPath)) return res.status(404).end();
+    try {
+      const ffmpeg = require('ffmpeg-static');
+      const { execFile } = require('child_process');
+      const { promisify } = require('util');
+      fs.mkdirSync(path.dirname(thumbPath), { recursive: true });
+      // Fast seek to 20% into the video — avoids the slow thumbnail=300 filter
+      // which reads hundreds of frames and reliably times out on large files.
+      let seekSec = 5;
+      try {
+        const probe = await promisify(execFile)(ffmpeg, ['-i', entry.videoPath], { timeout: 5000 }).catch(e => e);
+        const m = (probe.stderr || probe.message || '').match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+        if (m) seekSec = Math.max(1, (parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseFloat(m[3])) * 0.35);
+      } catch {}
+      await promisify(execFile)(ffmpeg, ['-ss', String(seekSec), '-i', entry.videoPath, '-frames:v', '1', '-q:v', '4', '-vf', 'scale=600:-1', '-y', thumbPath], { timeout: 10000 });
+    } catch { return res.status(404).end(); }
+  }
+
   res.setHeader('Content-Type', 'image/jpeg');
   res.setHeader('Cache-Control', 'max-age=604800');
   res.sendFile(thumbPath);
@@ -472,7 +564,7 @@ router.get('/journals/thumbnail', async (req, res) => {
 
   // ── Disk cache ────────────────────────────────────────────────────────────
   // Cache key = video path hash + file mtime so stale thumbs auto-invalidate.
-  const cacheDir = path.join(os.homedir(), '.gather', 'thumb-cache');
+  const cacheDir = path.join(getAppDataDir(), 'thumb-cache');
   fs.mkdirSync(cacheDir, { recursive: true });
   let mtime = 0;
   try { mtime = fs.statSync(videoPath).mtimeMs; } catch {}
@@ -529,6 +621,7 @@ router.get('/journals/thumbnail', async (req, res) => {
       .map((r, i) => ({ ok: r.status === 'fulfilled', data: r.value, idx: i }))
       .filter(f => f.ok);
 
+    if (frames.length === 0) { res.status(404).end(); return; }
     let chosenIdx = 0; // default: first frame
 
     // Ask Claude to pick the most visually interesting frame
@@ -574,23 +667,36 @@ router.get('/journals/thumbnail', async (req, res) => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function configPath() { return path.join(os.homedir(), '.gather', 'config.json'); }
+function configPath() { return path.join(getAppDataDir(), 'config.json'); }
 function loadConfig() {
   try { return JSON.parse(fs.readFileSync(configPath(), 'utf8')); } catch { return {}; }
 }
 
 // ── Export log ────────────────────────────────────────────────────────────────
-const EXPORTS_LOG = path.join(os.homedir(), '.gather', 'exports.json');
+const EXPORTS_LOG = path.join(getAppDataDir(), 'exports.json');
 
 function loadExports() {
   try { return JSON.parse(fs.readFileSync(EXPORTS_LOG, 'utf8')); } catch { return []; }
 }
 
-function recordExport(videoPath, name, assembly, thumbPath) {
+function calcStreak(exports) {
+  const toStr = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const days = new Set(exports.filter(e => e.exportedAt).map(e => toStr(new Date(e.exportedAt))));
+  if (!days.size) return 0;
+  const check = new Date();
+  // Allow streak to stay alive if user hasn't filmed today yet
+  if (!days.has(toStr(check))) check.setDate(check.getDate() - 1);
+  if (!days.has(toStr(check))) return 0;
+  let streak = 0;
+  while (days.has(toStr(check))) { streak++; check.setDate(check.getDate() - 1); }
+  return streak;
+}
+
+function recordExport(videoPath, name, assembly, thumbPath, folderPath, transcriptExcerpt, footageDates, rawDurationSec, clipCount) {
   try {
     const log      = loadExports();
     const filtered = log.filter(e => e.videoPath !== videoPath);
-    filtered.unshift({ videoPath, name, thumbPath: thumbPath || null, exportedAt: new Date().toISOString() });
+    filtered.unshift({ videoPath, name, thumbPath: thumbPath || null, folderPath: folderPath || null, transcriptExcerpt: transcriptExcerpt || null, footageDates: footageDates || null, rawDurationSec: rawDurationSec || null, clipCount: clipCount || null, exportedAt: new Date().toISOString() });
     fs.mkdirSync(path.dirname(EXPORTS_LOG), { recursive: true });
     fs.writeFileSync(EXPORTS_LOG, JSON.stringify(filtered.slice(0, 50), null, 2));
   } catch {}
@@ -604,6 +710,13 @@ function recordExport(videoPath, name, assembly, thumbPath) {
 router.post('/journal/reedit', (req, res) => {
   const { assemblyPath, captions, captionStyle, orientation, pacingParams } = req.body;
   if (!assemblyPath) return res.status(400).json({ error: 'assemblyPath required' });
+
+  // Restrict reads to the assembly-cache directory — prevents arbitrary file reads
+  // from a malicious process posting a crafted assemblyPath.
+  const assemblyCache = path.join(getAppDataDir(), 'assembly-cache');
+  if (!path.resolve(assemblyPath).startsWith(assemblyCache + path.sep)) {
+    return res.status(403).json({ error: 'Invalid assembly path' });
+  }
 
   let sidecar;
   try {
@@ -626,13 +739,14 @@ router.post('/journal/reedit', (req, res) => {
   const orientSlug   = isVertical ? '-vertical' : '';
   const captionsOpts = captions ? { enabled: true, style: captionStyle || 'clean' } : null;
 
-  // Derive output path from original video path with a re-edit suffix
-  const origVideo = sidecar.videoPath || '';
-  const dir       = path.dirname(origVideo) || path.join(os.homedir(), 'Desktop', 'Organized', 'Journals');
-  const base      = path.basename(origVideo, '.mp4');
-  const now       = new Date();
-  const ts        = `${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
-  const videoOut  = path.join(dir, `${base}-reedit${orientSlug}-${ts}.mp4`);
+  // Derive output path from original video — same folder, same date, categories at end
+  const origVideo   = sidecar.videoPath || '';
+  const dir         = path.dirname(origVideo) || path.join(os.homedir(), 'Movies', 'Slices');
+  const dateMatch   = path.basename(origVideo).match(/(\d{4}-\d{2}-\d{2})/);
+  const datePart    = dateMatch ? dateMatch[1] : new Date().toISOString().slice(0, 10);
+  const isHighlight = /highlight/i.test(path.basename(origVideo));
+  const hlSlug      = isHighlight ? '-highlight' : '';
+  const videoOut    = path.join(dir, `${datePart}${hlSlug}${orientSlug}.mp4`);
 
   buildJournalVideo(assembly, videoOut, prog => {
     const pct = typeof prog === 'object' ? prog.pct : prog;
@@ -653,15 +767,17 @@ router.post('/journal/reedit', (req, res) => {
       const { execFile } = require('child_process');
       const { promisify } = require('util');
       const execFileAsync = promisify(execFile);
-      const thumbDir  = path.join(os.homedir(), '.gather', 'thumb-cache');
+      const thumbDir  = path.join(getAppDataDir(), 'thumb-cache');
       fs.mkdirSync(thumbDir, { recursive: true });
       const thumbFile = path.join(thumbDir, path.basename(videoOut, '.mp4') + '.jpg');
-      await execFileAsync(ffmpeg, ['-i', videoOut, '-vf', 'thumbnail=300,scale=600:-1', '-frames:v', '1', '-q:v', '4', '-y', thumbFile], { timeout: 30000 });
+      await execFileAsync(ffmpeg, ['-i', videoOut, '-vf', 'fps=1,thumbnail=60,scale=600:-1', '-frames:v', '1', '-q:v', '4', '-y', thumbFile], { timeout: 30000 });
       thumbPath = thumbFile;
     } catch {}
 
     // Save new assembly sidecar
-    const newAssemblyPath = videoOut.replace(/\.mp4$/, '.assembly.json');
+    const assemblyCache   = path.join(getAppDataDir(), 'assembly-cache');
+    fs.mkdirSync(assemblyCache, { recursive: true });
+    const newAssemblyPath = path.join(assemblyCache, path.basename(videoOut).replace(/\.mp4$/, '.assembly.json'));
     try {
       fs.writeFileSync(newAssemblyPath, JSON.stringify({
         version: 1, videoPath: videoOut, assembly, resolvedTimeline,
@@ -675,6 +791,7 @@ router.post('/journal/reedit', (req, res) => {
 
     const xmlPath = autoExportXML({ assembly, resolvedTimeline, videoPath: videoOut }, name, pacingParams, orientation);
     const renderOpts = { captions: captions || false, captionStyle: captionStyle || 'clean', orientation: orientation || 'landscape', pacingParams: pacingParams || null, pacing: req.body.pacing || null };
+    updateStyleProfile({ pacing: req.body.pacing, captions, captionStyle }, 2);
     journalJobs.set(jobId, {
       status: 'done', progress: 100, message: 'Done!',
       videoPath: videoOut, thumbPath, assemblyPath: newAssemblyPath,
@@ -711,16 +828,18 @@ router.post('/stt', (req, res) => {
   const execFileAsync = promisify(execFile);
   const ffmpegPath = require('ffmpeg-static');
 
+  function whisperBase() {
+    return path.dirname(require.resolve('nodejs-whisper/package.json'))
+      .replace(/app\.asar([/\\])/, 'app.asar.unpacked$1');
+  }
   function getWhisperBin() {
-    const base = path.dirname(require.resolve('nodejs-whisper/package.json'));
-    return path.join(base, 'cpp', 'whisper.cpp', 'build', 'bin', 'whisper-cli');
+    return path.join(whisperBase(), 'cpp', 'whisper.cpp', 'build', 'bin', 'whisper-cli');
   }
   function getModelPath() {
-    const base = path.dirname(require.resolve('nodejs-whisper/package.json'));
-    return path.join(base, 'cpp', 'whisper.cpp', 'models', 'ggml-tiny.en.bin');
+    return path.join(whisperBase(), 'cpp', 'whisper.cpp', 'models', 'ggml-tiny.en.bin');
   }
 
-  const bb = Busboy({ headers: req.headers });
+  const bb = Busboy({ headers: req.headers, limits: { files: 1, fileSize: 100 * 1024 * 1024 } });
   const tmpIn  = path.join(os.tmpdir(), `stt-in-${Date.now()}.webm`);
   const tmpWav = path.join(os.tmpdir(), `stt-${Date.now()}.wav`);
   const outBase = tmpWav.replace('.wav', '');
@@ -738,7 +857,14 @@ router.post('/stt', (req, res) => {
           '-c:a', 'pcm_s16le', '-y', tmpWav,
         ], { timeout: 30000 });
 
-        // Run Whisper
+        // Set DYLD_LIBRARY_PATH so whisper-cli finds all its dylibs in the app bundle
+        const buildBase = path.join(whisperBase(), 'cpp', 'whisper.cpp', 'build');
+        const libDir = [
+          path.join(buildBase, 'src'),
+          path.join(buildBase, 'ggml', 'src'),
+          path.join(buildBase, 'ggml', 'src', 'ggml-blas'),
+          path.join(buildBase, 'ggml', 'src', 'ggml-metal'),
+        ].join(':');
         const whisperResult = await execFileAsync(getWhisperBin(), [
           '-m', getModelPath(),
           '-f', tmpWav,
@@ -747,7 +873,11 @@ router.post('/stt', (req, res) => {
           '--language', 'en',
           '--no-timestamps',
           '--threads', '4',
-        ], { maxBuffer: 5 * 1024 * 1024, timeout: 60000 });
+        ], {
+          env: { ...process.env, DYLD_LIBRARY_PATH: libDir },
+          maxBuffer: 5 * 1024 * 1024,
+          timeout: 60000,
+        });
         console.log('[stt] whisper stdout:', whisperResult.stdout?.slice(0, 300));
         console.log('[stt] whisper stderr:', whisperResult.stderr?.slice(0, 300));
 

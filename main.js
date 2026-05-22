@@ -3,14 +3,34 @@ const path = require('path');
 const fs   = require('fs');
 const os   = require('os');
 
-// One-time migration: rename ~/.gather → ~/.slice-of-life
-(function migrateDataDir() {
-  const oldDir = path.join(os.homedir(), '.gather');
-  const newDir = path.join(os.homedir(), '.slice-of-life');
-  if (fs.existsSync(oldDir) && !fs.existsSync(newDir)) {
-    try { fs.renameSync(oldDir, newDir); } catch {}
+// One-time migration: move data into Electron's guaranteed-writable userData dir.
+// Chain: ~/.gather → ~/.slice-of-life → userData (~/Library/Application Support/Slice of Life)
+app.whenReady().then(() => {
+  const userData   = app.getPath('userData');
+  const oldGather  = path.join(os.homedir(), '.gather');
+  const oldSlice   = path.join(os.homedir(), '.slice-of-life');
+
+  // Step 1: .gather → .slice-of-life (old migration, keep for anyone still on it)
+  if (fs.existsSync(oldGather) && !fs.existsSync(oldSlice)) {
+    try { fs.renameSync(oldGather, oldSlice); } catch {}
   }
-})();
+
+  // Step 2: .slice-of-life → userData
+  if (fs.existsSync(oldSlice)) {
+    for (const file of ['config.json', 'exports.json']) {
+      const src = path.join(oldSlice, file);
+      const dst = path.join(userData, file);
+      if (fs.existsSync(src) && !fs.existsSync(dst)) {
+        try { fs.copyFileSync(src, dst); } catch {}
+      }
+    }
+    const thumbSrc = path.join(oldSlice, 'thumb-cache');
+    const thumbDst = path.join(userData, 'thumb-cache');
+    if (fs.existsSync(thumbSrc) && !fs.existsSync(thumbDst)) {
+      try { fs.renameSync(thumbSrc, thumbDst); } catch {}
+    }
+  }
+});
 
 let mainWindow;
 
@@ -88,6 +108,10 @@ ipcMain.handle('shell:openPath', (_, target) => {
 
 ipcMain.handle('shell:showInFinder', (_, filePath) => {
   shell.showItemInFolder(filePath);
+});
+
+ipcMain.handle('shell:openExternal', (_, url) => {
+  shell.openExternal(url);
 });
 
 ipcMain.handle('photos:libraryPath', async () => {
