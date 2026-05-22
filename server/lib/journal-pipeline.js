@@ -277,7 +277,26 @@ async function assignBrollSemantically(aroll, broll, log, style = 'balanced', ar
         if (!isNaN(idx)) { clip.semanticSection = idx; assigned++; }
       }
     });
-    log?.write(`[semantic-broll] style=${style} assigned ${assigned}/${assignable.length} clips`);
+
+    // Hard chronological guard — Claude sometimes places a clip filmed late in
+    // the day into an early section because the narration *mentions* that topic.
+    // e.g. clip 12/15 (80% through the day) → section 1/3 (33%) is wrong.
+    // Revert any assignment where the recording fraction and section fraction
+    // differ by more than 40%, letting timestamp proximity handle it instead.
+    let reverted = 0;
+    assignable.forEach((clip, i) => {
+      if (clip.semanticSection === undefined) return;
+      const clipFrac    = (i + 0.5) / assignable.length;
+      const sectionFrac = (clip.semanticSection + 0.5) / aroll.length;
+      if (Math.abs(clipFrac - sectionFrac) > 0.40) {
+        log?.write(`  [reorder-revert] "${path.basename(clip.path)}" clip ${i+1}/${assignable.length} (${Math.round(clipFrac*100)}%) → sec ${clip.semanticSection+1}/${aroll.length} (${Math.round(sectionFrac*100)}%) out of order`);
+        delete clip.semanticSection;
+        assigned--;
+        reverted++;
+      }
+    });
+
+    log?.write(`[semantic-broll] style=${style} assigned ${assigned}/${assignable.length} clips${reverted ? ` (${reverted} reverted — out of chronological order)` : ''}`);
     assignable.forEach((clip, i) => {
       if (clip.semanticSection !== undefined) {
         log?.write(`  "${path.basename(clip.path)}" → section ${clip.semanticSection + 1}`);

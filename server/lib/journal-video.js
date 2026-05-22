@@ -162,47 +162,42 @@ function rotFrag(rotation) {
 
 // High-level: returns the rotation filter fragment for a clip.
 //
-// Rules:
-//   aroll: Vision suggestedRotation if available, else metadata tag.
+// Probe rotation (info.rotation) is ALWAYS applied as the baseline — it
+// comes directly from file metadata (rotate tag or display matrix) and is
+// the authoritative source for how stored pixels relate to upright display.
+// The original rule of "skip display-matrix rotation for faceless b-roll"
+// was wrong: it assumed b-roll is always landscape-correct, but portrait
+// iPhone b-roll needs the same correction as any other clip.
 //
-//   broll with face visible (hasFace=true): Vision suggestedRotation if
-//     available, else metadata tag. Faces have an unambiguous up/down
-//     orientation so Vision is trustworthy.
-//
-//   broll without face (hasFace=false): metadata tag only for rotate-TAG
-//     clips; no rotation for display-matrix clips. Vision is NOT trusted —
-//     object-only content is orientation-ambiguous and Vision often guesses
-//     wrong, overriding correct metadata.
+// Vision (suggestedRotation) can override the probe ONLY when it is
+// confident: when a face is visible (orientation is unambiguous) or when
+// Vision reports 180° (upside-down is never intentional). For rotate-TAG
+// clips, Vision is never used — preferredTransform is often identity for
+// cameras that store rotation only in the tag, and Vision would under-rotate.
 function clipRotFrag(info, clipType, suggestedRotation, hasFace, src) {
   const tag = require('path').basename(src || '');
+
   if (clipType === 'aroll') {
-    if (suggestedRotation != null) {
-      VERBOSE && console.log(`[rot] ${tag}: aroll → Vision ${suggestedRotation}°`);
-      return rotFrag(suggestedRotation);
-    }
-    VERBOSE && console.log(`[rot] ${tag}: aroll → metadata ${info.rotation}°`);
-    return rotFrag(info.rotation);
+    // A-roll: prefer Vision (face orientation is unambiguous), fall back to probe
+    const rot = suggestedRotation ?? info.rotation;
+    VERBOSE && console.log(`[rot] ${tag}: aroll → ${suggestedRotation != null ? 'Vision' : 'metadata'} ${rot}°`);
+    return rotFrag(rot);
   }
-  // B-roll rotation rules:
-  //
-  // 1. Rotate-TAG clips: tag is ALWAYS authoritative — Apple Vision reads preferredTransform
-  //    which may be identity for cameras that store rotation only in the rotate tag, not the
-  //    tkhd matrix.  Applying Vision rotation here would either double-rotate or under-rotate.
-  //
-  // 2. Display-matrix clips (rotFromTag=false): trust Vision when a person is visible
-  //    (face orientation is unambiguous) or when Vision says 180° (upside-down is never
-  //    intentional framing).  For everything else, skip rotation.
+
+  // B-roll: probe rotation is the baseline for ALL clips.
+  // Rotate-TAG clips: ignore Vision entirely — preferredTransform may be identity.
   if (info.rotFromTag) {
-    VERBOSE && console.log(`[rot] ${tag}: broll/tag → metadata ${info.rotation}° (tag always authoritative)`);
+    VERBOSE && console.log(`[rot] ${tag}: broll/tag → metadata ${info.rotation}° (tag authoritative)`);
     return rotFrag(info.rotation);
   }
+  // Display-matrix clips: Vision overrides probe only when confident.
   if (suggestedRotation != null && (hasFace || suggestedRotation === 180)) {
     VERBOSE && console.log(`[rot] ${tag}: broll/matrix → Vision ${suggestedRotation}° (hasFace=${hasFace})`);
     return rotFrag(suggestedRotation);
   }
-  // Display matrix, no face, not upside-down — skip rotation
-  VERBOSE && console.log(`[rot] ${tag}: broll/matrix → skip (hasFace=${hasFace} rot=${suggestedRotation ?? 'null'})`);
-  return '';
+  // No confident Vision data — apply probe display-matrix rotation.
+  VERBOSE && console.log(`[rot] ${tag}: broll/matrix → metadata ${info.rotation}°`);
+  return rotFrag(info.rotation);
 }
 
 // Blurred-background + centred letterbox/pillarbox.
@@ -590,17 +585,23 @@ async function buildJournalVideo(assembly, outPath, onProgress, musicOpts, pacin
 // Returns true if the clip's display pixels are wider than tall — i.e. it is
 // landscape content. Used to decide whether bgFilter needs blur bars.
 // Accepts an optional suggestedRotation from Vision; falls back to probe metadata.
+// Must mirror clipRotFrag exactly — determines whether the blur-bar treatment
+// is applied for landscape clips inside a 9:16 frame.  Wrong effective rotation
+// here produces blur bars on portrait clips or no bars on landscape clips.
 function clipIsLandscapeForVertical(info, suggestedRotation, clipType, hasFace = false) {
   const { storedW = 0, storedH = 0, rotation = 0, rotFromTag = false } = info;
-  // Broll with display matrix: rotation is only applied in the filter chain when
-  // hasFace=true (clipRotFrag uses Vision rotation for people, not objects).
-  // If rotation IS applied we must use effective display dims, not stored dims.
-  if (clipType === 'broll' && !rotFromTag && !hasFace) return storedW > storedH;
-  // For rotate-TAG clips, clipRotFrag always uses info.rotation (tag is authoritative).
-  // Apple Vision reads preferredTransform which can be identity when a camera stores
-  // rotation only in the rotate tag — suggestedRotation would then be 0, making us
-  // think a 90°-rotated portrait clip is landscape and wrongly apply blur bars.
-  const effectiveRot = rotFromTag ? rotation : (suggestedRotation ?? rotation);
+
+  let effectiveRot;
+  if (clipType === 'aroll') {
+    effectiveRot = suggestedRotation ?? rotation;
+  } else if (rotFromTag) {
+    effectiveRot = rotation;                              // tag always authoritative
+  } else if (suggestedRotation != null && (hasFace || suggestedRotation === 180)) {
+    effectiveRot = suggestedRotation;                     // Vision confident
+  } else {
+    effectiveRot = rotation;                              // probe display-matrix
+  }
+
   const displayW = (effectiveRot === 90 || effectiveRot === 270) ? storedH : storedW;
   const displayH = (effectiveRot === 90 || effectiveRot === 270) ? storedW : storedH;
   return displayW > displayH;
