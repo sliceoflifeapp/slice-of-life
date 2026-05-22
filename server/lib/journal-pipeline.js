@@ -221,8 +221,20 @@ async function assignBrollSemantically(aroll, broll, log, style = 'balanced', ar
     return;
   }
 
-  const assignable = broll.filter(b => b.vision?.description || b.vision?.contentTags?.length);
+  // Sort by filledAt so [recorded X of N] labels in the prompt reflect
+  // actual recording order, not quality score order.  broll arrives sorted
+  // by Vision qualityScore (descending) — using that index as a proxy for
+  // "when it was filmed" is wrong and the root cause of ordering bugs.
+  const assignable = broll
+    .filter(b => b.vision?.description || b.vision?.contentTags?.length)
+    .sort((a, b) => (a.filledAt || 0) - (b.filledAt || 0));
   if (!assignable.length) return;
+
+  // Compute filledAt range for the chronological guard below.
+  const filledAts  = assignable.map(c => c.filledAt || 0).filter(t => t > 0);
+  const minFilled  = filledAts.length ? Math.min(...filledAts) : 0;
+  const maxFilled  = filledAts.length ? Math.max(...filledAts) : 0;
+  const hasTimings = maxFilled > minFilled;
 
   const client = whisper.getClient();
   if (!client) return;
@@ -243,8 +255,12 @@ async function assignBrollSemantically(aroll, broll, log, style = 'balanced', ar
     return `B-roll ${i + 1}${pos}: "${summary}"`;
   }).join('\n');
 
+  // 3-act structure: the narration sections form a natural beginning/middle/end arc.
+  // B-roll recorded in the first third of the day belongs in the first third of
+  // sections; middle footage in the middle; end footage at the end.
+  // Semantic content match is a secondary signal — chronological order is primary.
   const chronoInstruction = style === 'balanced'
-    ? '\nIMPORTANT: Each b-roll clip includes its recording position. Clips recorded earlier in the day should go in earlier sections and later clips in later sections. Only override this chronological order if another section is a significantly stronger content match.'
+    ? '\nIMPORTANT: The clips are listed in the order they were recorded. The video has a 3-act structure — beginning, middle, and end. B-roll recorded early in the day should appear in the early sections (Act 1: arrival/setup), mid-day footage in the middle sections (Act 2: main events), and late footage in the final sections (Act 3: wrap-up/reflection). Preserve this chronological arc. Only reassign a clip to a non-chronological section if the content match is dramatically stronger AND the clip is within one act of its natural position.'
     : '';
 
   const arcLine = arcContext ? `\nStory arc context:\n${arcContext}\n` : '';
@@ -278,18 +294,21 @@ async function assignBrollSemantically(aroll, broll, log, style = 'balanced', ar
       }
     });
 
-    // Hard chronological guard — Claude sometimes places a clip filmed late in
-    // the day into an early section because the narration *mentions* that topic.
-    // e.g. clip 12/15 (80% through the day) → section 1/3 (33%) is wrong.
-    // Revert any assignment where the recording fraction and section fraction
-    // differ by more than 40%, letting timestamp proximity handle it instead.
+    // Hard chronological guard — use actual filledAt timestamps (not quality-sort
+    // position) so the fraction accurately reflects when each clip was filmed.
+    // Threshold: 35% — a clip can shift at most ~1 act (1/3 of the video) from
+    // its natural chronological position. Larger jumps are reverted to timestamp
+    // proximity so late-day footage never appears at the start of the video.
     let reverted = 0;
     assignable.forEach((clip, i) => {
       if (clip.semanticSection === undefined) return;
-      const clipFrac    = (i + 0.5) / assignable.length;
+      // Use real timestamp fraction when available; fall back to array index.
+      const clipFrac = hasTimings && clip.filledAt
+        ? (clip.filledAt - minFilled) / (maxFilled - minFilled)
+        : (i + 0.5) / assignable.length;
       const sectionFrac = (clip.semanticSection + 0.5) / aroll.length;
-      if (Math.abs(clipFrac - sectionFrac) > 0.40) {
-        log?.write(`  [reorder-revert] "${path.basename(clip.path)}" clip ${i+1}/${assignable.length} (${Math.round(clipFrac*100)}%) → sec ${clip.semanticSection+1}/${aroll.length} (${Math.round(sectionFrac*100)}%) out of order`);
+      if (Math.abs(clipFrac - sectionFrac) > 0.35) {
+        log?.write(`  [reorder-revert] "${path.basename(clip.path)}" filmed@${Math.round(clipFrac*100)}% → sec ${clip.semanticSection+1}/${aroll.length} (${Math.round(sectionFrac*100)}%) out of chronological order`);
         delete clip.semanticSection;
         assigned--;
         reverted++;
@@ -808,6 +827,16 @@ async function run(folderPath, options = {}, onProgress, pacingParams) {
   // per 15 clips gives enough context to match clips to narration sections.
   update('Describing b-roll…', 67);
   await describeBroll(scoredBroll, log);
+
+  // ── Log narration sections (transcript excerpt per a-roll clip) ──────────
+  // Printed to debug-last-run.log so you can read the story arc without
+  // watching the video, and verify semantic b-roll placement makes sense.
+  log.write(`[transcript] ${cappedAroll.length} narration sections:`);
+  cappedAroll.forEach((clip, i) => {
+    const segs = clip.transcript?.segments || [];
+    const text = segs.map(s => s.text).join(' ').replace(/\s+/g, ' ').slice(0, 300).trim();
+    log.write(`  Section ${i + 1}: [${path.basename(clip.path)}] "${text || '(no transcript)'}"`);
+  });
 
   // ── Semantic b-roll assignment ────────────────────────────────────────────
   // Ask Claude Haiku to match each b-roll clip to the narration section it
