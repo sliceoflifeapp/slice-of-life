@@ -81,6 +81,7 @@ async function descriptionMatch(transcriptText, description) {
 // density. Used to cap long narration clips to their most talkative section.
 // Returns { windowStart, windowEnd } in clip-time seconds, or null if segments
 // have no usable timing.
+
 // Extend a window end to the boundary of the last segment that started within
 // it — prevents hard cuts mid-sentence.  Grace period capped at 3s so a very
 // long segment doesn't blow up the budget.
@@ -90,6 +91,46 @@ function extendToSegmentBoundary(timed, windowEnd, maxGrace = 3.0) {
     return Math.min(lastStarted.end + 0.2, windowEnd + maxGrace);
   }
   return windowEnd;
+}
+
+// Find the most natural cut point near targetEnd.
+// First scans a ±grace window for a Whisper segment that ends with sentence-
+// ending punctuation (. ! ?).  If found, cut after that segment so the last
+// word the viewer hears completes a full thought.  Falls back to
+// extendToSegmentBoundary when no sentence boundary is found.
+function findNaturalCutEnd(timed, targetEnd, maxGrace = 4.0) {
+  const candidates   = timed.filter(s => s.end >= targetEnd - 2.0 && s.end <= targetEnd + maxGrace);
+  const sentenceEnds = candidates.filter(s => /[.!?](\s*$)/.test(s.text.trim()));
+
+  if (sentenceEnds.length > 0) {
+    // Pick the sentence-ending segment closest to targetEnd
+    const best = sentenceEnds.reduce((a, b) =>
+      Math.abs(a.end - targetEnd) <= Math.abs(b.end - targetEnd) ? a : b
+    );
+    console.log(`[whisper] natural cut end: "${best.text.trim().slice(-50)}" at ${best.end.toFixed(2)}s (target ${targetEnd.toFixed(2)}s)`);
+    return best.end + 0.15;
+  }
+
+  // No sentence boundary nearby — at least complete any in-progress segment
+  return extendToSegmentBoundary(timed, targetEnd, maxGrace);
+}
+
+// Snap a window start to the nearest clean sentence start.
+// If the raw start falls mid-segment, jumps forward to the next segment edge.
+// Then looks up to 1s ahead for a segment that begins with a capital letter
+// (Whisper capitalises the first word of new sentences).
+function findNaturalCutStart(timed, targetStart) {
+  // Snap forward if we land inside an existing segment
+  const midSeg = timed.find(s => s.start < targetStart - 0.05 && s.end > targetStart + 0.1);
+  if (midSeg) {
+    const nextSeg = timed.find(s => s.start >= midSeg.end - 0.05);
+    if (nextSeg) return Math.max(0, nextSeg.start - 0.1);
+  }
+  // At a segment boundary — prefer one that begins a new sentence
+  const nearby = timed.filter(s => s.start >= targetStart - 0.15 && s.start <= targetStart + 1.0);
+  const sentenceStart = nearby.find(s => /^[A-Z"']/.test(s.text.trim()));
+  if (sentenceStart) return Math.max(0, sentenceStart.start - 0.1);
+  return targetStart;
 }
 
 function findDenseWindow(segments, maxDuration) {
@@ -116,12 +157,9 @@ function findDenseWindow(segments, maxDuration) {
     }
   }
 
-  const rawEnd = bestEnd;
-  bestEnd = extendToSegmentBoundary(timed, rawEnd);
-
   return {
-    windowStart: Math.max(0, bestStart - 0.3),
-    windowEnd:   bestEnd,
+    windowStart: findNaturalCutStart(timed, Math.max(0, bestStart - 0.3)),
+    windowEnd:   findNaturalCutEnd(timed, bestEnd),
   };
 }
 
@@ -272,11 +310,12 @@ async function findBestWindow(segments, maxDuration, description) {
     const start = parseFloat(msg.content[0].text.trim());
     if (isNaN(start) || start < 0) return findDenseWindow(segments, maxDuration);
 
-    const lastEnd = timed[timed.length - 1].end;
-    const windowStart = Math.max(0, start - 0.3);
-    const rawEnd      = Math.min(windowStart + maxDuration, lastEnd + 0.5);
-    const windowEnd   = extendToSegmentBoundary(timed, rawEnd);
-    console.log(`[whisper] findBestWindow: Claude picked start=${start.toFixed(1)}s → [${windowStart.toFixed(1)}s–${windowEnd.toFixed(1)}s]${windowEnd > rawEnd ? ` (extended +${(windowEnd - rawEnd).toFixed(1)}s for sentence boundary)` : ''}`);
+    const lastEnd     = timed[timed.length - 1].end;
+    const rawStart    = Math.max(0, start - 0.3);
+    const rawEnd      = Math.min(rawStart + maxDuration, lastEnd + 0.5);
+    const windowStart = findNaturalCutStart(timed, rawStart);
+    const windowEnd   = findNaturalCutEnd(timed, rawEnd);
+    console.log(`[whisper] findBestWindow: Claude picked start=${start.toFixed(1)}s → [${windowStart.toFixed(1)}s–${windowEnd.toFixed(1)}s]`);
     return { windowStart, windowEnd };
   } catch (err) {
     console.warn(`[whisper] findBestWindow API error, falling back to density: ${err.message}`);

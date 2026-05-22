@@ -596,7 +596,11 @@ function clipIsLandscapeForVertical(info, suggestedRotation, clipType, hasFace =
   // hasFace=true (clipRotFrag uses Vision rotation for people, not objects).
   // If rotation IS applied we must use effective display dims, not stored dims.
   if (clipType === 'broll' && !rotFromTag && !hasFace) return storedW > storedH;
-  const effectiveRot = suggestedRotation ?? rotation;
+  // For rotate-TAG clips, clipRotFrag always uses info.rotation (tag is authoritative).
+  // Apple Vision reads preferredTransform which can be identity when a camera stores
+  // rotation only in the rotate tag — suggestedRotation would then be 0, making us
+  // think a 90°-rotated portrait clip is landscape and wrongly apply blur bars.
+  const effectiveRot = rotFromTag ? rotation : (suggestedRotation ?? rotation);
   const displayW = (effectiveRot === 90 || effectiveRot === 270) ? storedH : storedW;
   const displayH = (effectiveRot === 90 || effectiveRot === 270) ? storedW : storedH;
   return displayW > displayH;
