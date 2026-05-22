@@ -263,15 +263,34 @@ Each entry: `{ videoPath, name, thumbPath, folderPath, transcriptExcerpt, footag
 
 ## Pending / Next Session
 
-### Apple Vision migration (next major task)
-1. Rename `clip-vision.js` → `clip-vision-claude.js`
-2. Create `clip-vision.js` router — reads `visionBackend` from config, requires correct backend, auto-falls back to Claude if binary missing
-3. Write Swift `vision-cli` binary — AVFoundation video reader, Vision Framework face/pose detection, per-frame quality scoring, native rotation detection; outputs JSON to stdout
-4. Compile for arm64, bundle in `app.asar.unpacked/bin/`, strip quarantine on first run
-5. Write `clip-vision-apple.js` — spawns `vision-cli`, parses JSON, returns same shape as Claude backend
-6. Add `visionBackend` setting to config.json (default `'apple'`, fallback `'claude'`)
-7. Test on second machine — verify dylib paths, quarantine, fallback behavior
-8. Update debug-last-run.log to show `_source: 'apple'` vs `'claude'` per clip
+### Apple Vision migration — COMPLETE (v0.1.30)
+All steps done. Default backend is now Apple Vision.
+
+**How to rebuild `vision-cli` after editing `main.swift`:**
+```bash
+swiftc -O server/vision-cli/main.swift \
+    -o server/bin/vision-cli \
+    -framework AVFoundation -framework Vision \
+    -framework CoreImage -framework Foundation
+```
+(Deprecation warnings about macOS 13+ async APIs are expected and harmless.)
+
+**Files:**
+- `server/vision-cli/main.swift` — Swift source; edit here
+- `server/bin/vision-cli` — compiled arm64 binary; checked into repo; rebuild after source changes
+- `server/lib/clip-vision.js` — router; reads `visionBackend` from config.json (`'apple'`|`'claude'`)
+- `server/lib/clip-vision-apple.js` — Apple Vision backend; auto-falls back to Claude if binary missing
+- `server/lib/clip-vision-claude.js` — original Claude backend (3-frame sampling); kept as fallback
+
+**Switching backends:** set `visionBackend: 'claude'` in `{userData}/config.json` and restart, or call `POST /settings` with `{ visionBackend: 'claude' }`. Default is `'apple'`.
+
+**Quality score:** luminance standard deviation over a 16×16 thumbnail (CoreGraphics, no CIImage coord issues). stdDev≈50 → score≈63, stdDev≈80 → score=100. Reasonable for b-roll ranking and highlight reel selection.
+
+**Rotation:** read directly from `AVURLAsset` video track `preferredTransform`. Equivalent to the display matrix path in the old ffmpeg probe. `atan2(b,a)` gives visual CW rotation (video Y-down convention).
+
+**Still pending:**
+- Test on a second machine to verify binary runs without issues
+- Update debug-last-run.log to show `_source: 'apple'` vs `'claude'` per clip (currently logged to console only)
 
 ### Other pending
 - Remove or gate `[section N]` debug segment logging behind a verbose flag

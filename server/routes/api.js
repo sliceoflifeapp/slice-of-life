@@ -42,9 +42,12 @@ router.post('/settings', (req, res) => {
     if (apiKey        !== undefined) cfg.anthropicApiKey = apiKey;
     if (outputFolder  !== undefined) cfg.outputFolder    = outputFolder;
     if (openWhenDone  !== undefined) cfg.openWhenDone    = openWhenDone;
+    if (req.body.visionBackend !== undefined) cfg.visionBackend = req.body.visionBackend;
     fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
     fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-    console.log(`[settings] saved to ${cfgPath} — hasKey=${!!cfg.anthropicApiKey}`);
+    // Reset vision router cache so the new backend takes effect on next render
+    try { require('../lib/clip-vision').resetBackendCache(); } catch {}
+    console.log(`[settings] saved to ${cfgPath} — hasKey=${!!cfg.anthropicApiKey} vision=${cfg.visionBackend || 'apple'}`);
     res.json({ ok: true });
   } catch (err) {
     console.error('[settings] save failed:', err.message);

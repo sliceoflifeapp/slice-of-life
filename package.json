@@ -1,6 +1,6 @@
 {
   "name": "slice-of-life",
-  "version": "0.1.0",
+  "version": "0.1.29",
   "description": "Personal video journal maker",
   "main": "main.js",
   "scripts": {
@@ -68,7 +68,8 @@
       "node_modules/exiftool-vendored.pl/**/*",
       "node_modules/sql.js/**/*",
       "node_modules/nodejs-whisper/**/*",
-      "assets/fonts/**/*"
+      "assets/fonts/**/*",
+      "server/bin/**/*"
     ]
   }
 }
