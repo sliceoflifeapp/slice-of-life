@@ -22,7 +22,7 @@ npm start       # from project root
   - `lib/clip-vision-apple.js` — Apple Vision Framework backend (in progress); calls `vision-cli` Swift binary; full-frame analysis via AVFoundation
   - `bin/vision-cli` — compiled Swift binary; uses AVFoundation + Vision Framework; returns JSON with `hasFace`, `isTalkingHead`, `qualityScore`, `suggestedRotation`, `facePresenceRatio`
   - `lib/fcpxml.js` — Premiere Pro xmeml v4 XML generator
-  - `lib/trip-pipeline.js` — retired (no longer called); kept on disk for reference
+  - `lib/trip-pipeline.js` — deleted (was retired; removed in dead code purge)
 - `ui/` — plain HTML/CSS/JS frontend
   - `home.html` / `js/home.js` — home screen, source picker, recent slideshow
   - `js/settings.js` — settings panel (API key, output folder, slideshow clear)
@@ -296,7 +296,261 @@ swiftc -O server/vision-cli/main.swift \
 - Test on a second machine to verify binary runs without issues
 - Update debug-last-run.log to show `_source: 'apple'` vs `'claude'` per clip (currently logged to console only)
 
+### Session fixes (post v0.1.30)
+
+**Bug fixes applied (not yet versioned/distributed):**
+
+- **`??` + `||` syntax error (Node.js 26)**: `(nextAroll.trimEnd ?? nextAroll.duration || 0)` → `SyntaxError`. Fixed with parens: `(nextAroll.trimEnd ?? (nextAroll.duration || 0))`. Same at bridge last-resort line. This was causing "0 files" on folder scan — `require('../lib/journal-video')` failed, scan endpoint returned 500 which configure screen interpreted as 0 clips.
+
+- **Teaser detection removed entirely**: The "let me show you" / "check this out" phrase detection that trimmed the last a-roll clip was causing mid-word cuts (Whisper segments don't align with word boundaries). Feature removed completely from `journal-pipeline.js` — no `TEASER_RE`, no `runTeaserScan`, no if block.
+
+- **B-roll ordering**: `sec.brolls.sort()` was using `filledAt` as secondary key — unreliable for AirDropped clips. Fixed to use `clipComparator` (iPhone filename number IMG_XXXX as primary sort key). Import `clipComparator` from `./clip-sort` was added to `journal-video.js`.
+
+- **B-roll rotation (display-matrix faceless clips)**: Previous fix applied rotation to ALL faceless display-matrix b-roll unconditionally. Too broad — landscape clips with stale non-zero display matrix got incorrectly rotated. Fixed in `clipRotFrag`: only apply display-matrix rotation when `rotation !== 0 && storedW > storedH` (portrait iPhone b-roll case). Clips 5148/5152 may still need investigation.
+
+- **Bridge last-resort guard**: Added `nextNarrDur` check before borrowing next section's only b-roll for a bridge. Only borrows when `nextNarrDur < FACE_DUR * 3`.
+
+**New feature: `selectEndingClip` (`journal-pipeline.js`)**
+- Claude Haiku scans narration clips from the last 35% of the shoot day
+- Picks the one that sounds most like a natural conclusion ("what a great day", "heading home", "wrapping up")
+- Only swaps when the chosen clip is within 1 position of the end (prevents pacing disruption)
+- Called just before `assignBrollSemantically` in the pipeline
+
+**L-cut cutaway architecture (`journal-video.js`) — MAJOR CHANGE**
+
+The edit model is now a true two-track documentary cutaway:
+- Narration audio is continuous throughout — never replaced by b-roll ambient sound
+- B-roll video plays OVER the narration at cut points (L-cut / J-cut technique)
+- Before: overflow and bridge b-roll used b-roll's own ambient audio (volume 0.12)
+- After: overflow and bridge b-roll use the **next section's narration audio** starting from that section's `trimStart`
+- Section N+1's face cam then appears with both video and audio advanced by the consumed duration — lip sync is perfect, viewer hears the narrator start talking during b-roll then sees their face mid-sentence
+
+**Key implementation details:**
+- `renderSection(i, narrAudioOffset = 0)` — new param; `adjustedStart = narrTrimStart + narrAudioOffset` offsets both video and audio start
+- `renderBrollWithNarrAudio(br, narrClip, narrStart, brDur, tag)` — renders b-roll video + narration audio from another clip (two inputs to ffmpeg)
+- `renderBrollSilent(br, brDur, tag)` — used for last section's overflow (no next narration to borrow)
+- `audioOffsets[]` array tracks how many seconds of each section's narration were consumed before it renders
+- Rendering is sequential (already was CONCURRENCY=1); Pass 1 + concat loop merged into single loop
+- Cleanup in `finally` block updated to walk `sectionFiles` (all temp files) instead of `result.overflowFiles` (removed)
+
+### v0.1.30 — Apple Vision deactivated (current)
+
+**Built and distributed:** `dist/Slice of Life-0.1.30-arm64.dmg`
+
+**Only change from v0.1.29:** `server/lib/clip-vision.js` defaults to `'claude'` instead of `'apple'`.
+
+```js
+// clip-vision.js — how to switch backends:
+_backend = cfg.visionBackend === 'apple' ? 'apple' : 'claude';  // default: claude
+```
+
+To re-enable Apple Vision: set `visionBackend: 'apple'` in `{userData}/config.json` and restart. Everything else — the Swift binary, clip-vision-apple.js, clip-vision-claude.js — is untouched.
+
+**Why reverted:** Apple Vision sets `suggestedRotation` on every clip (reads `preferredTransform` unconditionally). This caused `clipRotFrag` to use Vision's rotation for faceless b-roll clips that were previously getting correct rotation from probe metadata. Claude Vision only sets `suggestedRotation` when it actually detects a problem, so fallback behavior is correct.
+
+**Apple Vision strategy for next attempt:**
+- The root issue: `suggestedRotation` being always-populated changed clipRotFrag behavior for faceless b-roll
+- Fix needed: in `clip-vision-apple.js`, only set `suggestedRotation` when it differs meaningfully from `info.rotation` (the ffmpeg probe value) — i.e. when Vision disagrees with metadata, not just as a passthrough of preferredTransform
+- Or: in `clipRotFrag`, for display-matrix b-roll without a face, ignore `suggestedRotation` entirely and always use `info.rotation` from probe — same result, simpler
+- B-roll section ordering (wrong section assignment) is a separate issue from Vision and was partially addressed with filename-number proximity matching (not shipped in v0.1.30 — was reverted with journal-video.js)
+
+### Session fixes (B-roll indexer + narration detection)
+
+**New module: `server/lib/broll-indexer.js`**
+- Shot boundary detection via ffmpeg scene detection (`select='gt(scene,0.35)',showinfo`, parses `pts_time:` from stderr)
+- Builds stable ranges per shot: `stableStart = shotStart + 1.5s`, `stableEnd = shotEnd - 0.25s`
+- Extracts 3 representative frames at 25/50/75% of each stable range
+- `askBestStart(client, frames)` — sends 3 base64 frames to Claude Haiku, asks which % is earliest stable/watchable frame; returns index 0/1/2. Stored as `best_start` on shot object.
+- `askSettleStart(client, videoPath, duration, opts)` — extracts frames at 0.5/1.0/1.5s from clip opening, asks Claude when camera becomes stable (no hands/blur/shake). Returns 0/0.5/1.0/1.5. Stored as `settle_start` at clip level (not shot level) — used for aroll trim start.
+- Cache: `broll_index.json` alongside source folder, invalidated by `INDEX_VERSION = 4` and clip mtime check
+- `_version: 3` in index file
+
+**`journal-pipeline.js` changes**
+- `runBrollIndex()` — builds/caches broll index before Vision loop; `INDEX_VERSION = 4`
+- `attachStableStarts()` — reads `best_start ?? stable_start` → `clip.stableStart`; reads `settle_start` → `clip.settleStart`
+- `recommendDuration(clips)` — takes clips array, uses clipCount + cappedSec (each clip capped at 60s) to avoid raw-total-seconds inflation from long b-roll clips
+- `isIntentionalNarration()` moved to `whisper.js` — Claude Haiku content check replaces WPS gate for talking-head detection; falls back to `wordsPerSec >= 1.5` when no API key
+- `vision.isTalkingHead || vision.hasFace` — runs Whisper on any face-visible clip (catches GoPro narration)
+- Director-notes rejection moved inside b-roll branch — never rejects talking heads
+
+**`journal-video.js` changes**
+- `narrTrimStart = Math.max(aroll.trimStart ?? 0, aroll.settleStart ?? Math.min(aroll.stableStart ?? 0, 1.0))` — uses Vision settle detection for aroll, 1.0s cap as fallback
+- Same pattern in `generateAss` and `generateSrt`
+- Removed `lastArollTime > brTime` shortcut that dumped AirDrop-timestamped clips to last section; all unassigned b-roll now uses nearest-aroll `filledAt` proximity
+
+**`configure.html` change**
+- Client-side `recommendDuration(clipCount, cappedSec)` matches server-side logic
+
+**B-roll section ordering — DO NOT use filenameNum for cross-camera proximity**
+- Attempted to replace `filledAt` with `filenameNum` (IMG_XXXX) for section routing. Caused major regression: GoPro clips (GH010001 → num=1) sort before all iPhone clips (IMG_5144 → num=5144), scrambling order for mixed-camera sessions. Reverted.
+- `filledAt` remains the cross-camera ordering key; filename numbers are only reliable within the same camera's clips
+
+### Session fixes (B-roll position assignment + rotation + bridges)
+
+**Replaced semantic b-roll assignment with position-based (`journal-pipeline.js`)**
+- `assignBrollSemantically` removed; replaced by `assignBrollByPosition`
+- Primary assignment: each b-roll clip is assigned to a section based on its array index position relative to section boundaries (midpoints between adjacent a-roll positions)
+- Section boundaries computed as `(arollPos[i] + arollPos[i+1]) / 2` (fractional midpoint, NOT Math.floor — Math.floor pushes ambiguous clips to later section causing empty earlier sections)
+- AI tiebreaker removed entirely — Claude "A or B?" calls were unreliable and overrode correct primary assignments. Pure position is more accurate.
+
+**Camera group filename correction in main sort (`journal-pipeline.js`)**
+- After `probed.sort()`, re-sort within each camera family by filename number:
+  - `gopro`: `GX`/`GH` prefix → sort by number
+  - `iphone`: `IMG_` prefix → sort by number
+  - `dji`: `DJI_` prefix → sort by number
+- Fixes AirDrop timestamp corruption within camera groups; cross-camera ordering still uses `filledAt`
+- DO NOT use filename numbers for cross-camera ordering — GoPro GH010001=1 vs iPhone IMG_5144=5144 makes them incomparable
+
+**`journal-builder.js` (new file)**
+- `buildJournal({ aroll, broll })` — builds flat chronological assembly sorted by `clipComparator`
+- Called in pipeline: `const { assembly } = await buildJournal(...)` before `buildJournalVideo`
+- Assembly carries full clip objects including `semanticSection` (set by `assignBrollByPosition`)
+- `buildInterleaved` in `journal-video.js` reads `semanticSection` to assign brolls to sections, falls back to `filledAt` proximity for unassigned clips
+
+**Rotation system simplified (`journal-video.js`, `clip-vision-claude.js`)**
+- Vision receives raw (unrotated) frames via `-noautorotate`; reports TOTAL clockwise rotation needed (0/90/180/270). No pre-rotation, no combining arithmetic.
+- `clipRotFrag` rules: a-roll → Vision authoritative, fall back to rotate TAG; b-roll with rotate TAG → tag always wins; b-roll with display matrix → Vision decides only when `hasFace=true`, otherwise keep as-is (conservative: don't rotate if unsure)
+- `bestFrame` prompt now factors in director notes + narration context, not just visual quality
+- `brollSeekStart()` helper: trims b-roll to most interesting moment using `refinedSeekPct` → `vision.bestFrame` → fallback
+- `refineBestFrames()`: single batched Haiku text call after section assignment; picks narration-aware seek % per b-roll clip; stored as `clip.refinedSeekPct`
+- B-roll style options (Chronological/Balanced/Story) removed from configure.html
+
+**Bridge start point fix (`journal-video.js`)**
+- Old: bridges always started from `trim=0` (camera settling fumble)
+- New: bridges use `clip.transcript?.trimStart` as start point — Whisper-detected content start
+- Falls back to `Math.max(1.0, brClipDur * 0.15)` if no transcript
+- Cap: `Math.min(rawBrStart, brClipDur - brDur - 0.5)` prevents start+dur from exceeding clip length
+- Audio atrim updated to match: `atrim=${brStart}:${brEnd}` instead of `atrim=0:${brDur}`
+- resolvedTimeline `srcIn`/`srcOut` updated to reflect new start point
+
+**Critical probe() bug fixed (`journal-video.js`)**
+- `probe()` had a stale `console.log` referencing `tagRot` and `matRot` — variables that lived inside `parseRotation()` after refactoring, no longer in scope of `probe()`
+- When `rotation !== 0`, the ReferenceError was silently caught by the outer try/catch → returned `{ storedW: 0, duration: 0 }` → clip dropped at preflight
+- Affected ALL clips with non-zero rotation (most portrait iPhone clips, upside-down clips). Fixed to log `rotFromTag` instead.
+- Any future refactor of `parseRotation` must ensure `probe()`'s console.log doesn't reference its internal variables
+
+### Session fixes (rotation conservatism + bridge priority)
+
+**Bridge priority updated (`journal-video.js`)**
+- New case added to bridge selection loop: when a section has exactly 1 b-roll clip, donate it as a farewell bridge rather than interleaving it over narration audio. A standalone clip between sections reads better editorially.
+- Bridge priority order: (1) curr has exactly 1 clip → farewell bridge; (2) next.brolls.length > 1 → preview clip; (3) curr.brolls.length > 1 → farewell clip; (4) next.brolls.length === 1 → last resort borrow; (5) null → direct cut accepted
+- GX010177 (dogs) confirmed working as a standalone bridge between sections 1→2 after this fix
+
+**Vision prompt improvement (`clip-vision-claude.js`)**
+- Added face-upright self-check to `suggestedRotation` description: "if a human face is visible, mentally apply your chosen rotation and verify the face would be upright (forehead above chin, eyes above mouth). If the face would be inverted after rotation, add 180° to your answer."
+- This fixed IMG_5241 (portrait clip filmed upside-down): Vision now correctly reports 90° instead of 270°, producing correct CW 90° transpose in output
+
+**Auto-rotate experiment reverted — conservative rotation is correct policy**
+- Attempted `brAutoRot` flag: auto-applied native ffmpeg rotation (no `-noautorotate`) for all display-matrix b-roll with non-zero rotation. Too broad — fired on landscape clips (jellyfish, aquarium) that were correct as-is, causing ~80% of clips to be wrong.
+- All three rendering contexts (cutaway, overflow, bridge) fully reverted to original conservative behavior: `-noautorotate` always, `clipRotFrag` handles decisions
+- `clipRotFrag` rules (unchanged, confirmed correct): a-roll → Vision authoritative; b-roll rotate-TAG → tag always wins; b-roll display-matrix → Vision rotation applied only when `hasFace=true`, otherwise keep as-is
+- Philosophy: if a clip is filmed sideways, that's user error. The app being predictable (leave clips alone unless confident) is better than being wrong on correctly-oriented clips.
+
 ### Other pending
-- Remove or gate `[section N]` debug segment logging behind a verbose flag
 - Wire up Lemon Squeezy credit top-up flow when ready to monetize
-- Investigate Whisper returning 1 word on long clips (63s+) — likely audio format or timeout issue; output still usable but narration audio from that clip may be lost
+- Investigate Whisper returning 1 word on long clips (63s+) — likely audio format or timeout issue
+- L-cut / cutaway audio architecture: code was written in a prior session but reverted as untested. Core idea: overflow/bridge b-roll renders with next section's narration audio; section N+1 starts audio+video from `trimStart + consumed`. Needs testing before reshipping.
+
+### Session fixes (v0.1.31 — vlogger pivot + seek point + SRT export)
+
+**Product pivot: daily vlogger focus**
+- App is now explicitly designed for daily vloggers who talk to camera (a-roll spine + b-roll cutaways)
+- Multi-day footage still works silently (grouped by shoot date, story arc generated)
+- Home screen CTA: "Drop in today's footage. We find your best talking-to-camera moments, cut in b-roll, burn captions, and export your vlog — ready to upload."
+- Filming guide retitled "How to vlog for best results"; acts renamed "Open to camera" / "Shoot your b-roll" / "Close to camera"
+- Notepad placeholder updated to vlog scripting language
+
+**Director's Notes removed entirely**
+- Gap between implied capability ("start with the sunset shot") and actual capability (loose semantic bias) was too wide
+- Removed from `configure.html`: textarea, mic button, STT JS, CSS
+- Removed from `journal-pipeline.js`: `description` param from options, both `analyzeClip` calls now pass `''`, `matchesDirectorNotes` rejection block gone, `selectBestAroll` updated
+- Removed from `whisper.js`: `descriptionMatch` function, `transcribe` no longer takes description param, `findBestWindow` simplified to just call `findDenseWindow`
+- Removed from `clip-vision-claude.js`: `directorNotes` block from `buildPrompt`, `matchesDirectorNotes` from returned result
+
+**Highlight Reel mode removed from UI**
+- `btn-highlight` CSS, "Make Highlight Reel" button, and `makeHighlightReel()` function removed from `journal.html`
+- Feature still exists in pipeline but no longer exposed
+
+**No-aroll guidance replaces retry/highlight buttons (`journal.html`)**
+- Old: "Try Again (Higher Sensitivity)" button + "Make Highlight Reel" button
+- New: guidance box explaining they need a clip speaking to camera, plus "← Start over" button
+- `btn-retry` CSS and `retryHighSensitivity()` function removed
+
+**Duration options updated (`configure.html`, `journal-pipeline.js`)**
+- Removed 30-second pill (too short for a vlog)
+- Added 10-minute pill: `600: { label: '10min', brollCut: 9, faceDur: 7.0, narrBudget: 0.45 }`
+- `pillValues = [60, 180, 300, 600]`; `recommendDuration` fallback changed from `return 30` to `return 60`
+- Server-side threshold: 60+ clips or 1800+ cappedSec → return 10 min
+- Client-side threshold matches server-side
+
+**PACING_MULT now wired into recommendation (`configure.html`)**
+- `PACING_MULT = { tight: 0.65, balanced: 1.0, relaxed: 1.5 }`
+- `updateRecommendation()` now applies mult: `baseSecs * mult`, snaps to nearest pill
+- Previously defined but never used — pacing had no effect on recommendation
+
+**B-roll seek point: Vision `bestFrame` + `frameProportions` (`journal-video.js`, `clip-vision-claude.js`)**
+- Root problem: IMG_5236 started with camera being set down because `refineBestFrames` (text-only Haiku) guessed early frame from description "handstand" clip
+- `refineBestFrames` removed entirely — was a text-only batched call that didn't see actual frames
+- `clip-vision-claude.js` now stores `frameProportions` in returned result for precise timestamp mapping
+- `brollSeekStart()` rewritten: uses `frameProportions[bestFrame] * dur` for exact center point; `stableStart` as hard floor; fallback to transcript trimStart or `max(1.0, dur * 0.15)`
+- `clip-vision-claude.js` `bestFrame` prompt improved: explicitly avoid camera placement/pickup frames and hands-in-frame; prefer middle frames
+
+**Style learning: `captionsOn` added, `brollStyle` removed (`server/lib/app-data.js`)**
+- `brollStyle` was written to style-profile on every render but never read back — removed from both write and read paths
+- `captionsOn: boolean` now stored per entry; majority vote with ≥4 entries threshold before committing to a preference
+- `applyStyleDefaults` in `configure.html` now toggles captions toggle and shows visible "Your style: ..." indicator
+
+**SRT sidecar export (`journal-video.js`, `journal-pipeline.js`, `journal.html`)**
+- SRT file written alongside `.mp4` whenever captions are enabled (clean unprocessed transcript)
+- `buildInterleaved` returns `{ resolvedTimeline, srtPath }`
+- `srtPath` threaded through pipeline return → api.js job result
+- Done screen shows SRT button when `data.srtPath` exists; button calls `window.electronAPI.openPath(srtPath)` to open in default system app
+- Addresses the "one bad typo and you're screwed" problem — users can edit SRT before uploading to YouTube
+
+**Version bumped to 0.1.31; DMG built successfully**
+
+### Session — dead code purge + robustness pass
+
+**UI fix**
+- Removed "Your style: Balanced" label from configure screen — was overlapping "Configure your edit." header. Deleted `#style-learned` div and its JS population block.
+
+**Dead files deleted**
+- `server/lib/face-detect.js` — replaced by clip-vision, unreferenced
+- `server/lib/score-broll.js` — replaced by clip-vision quality score, unreferenced
+- `server/lib/trip-pipeline.js` — retired multi-day pipeline, unreferenced
+- `server/lib/trip-builder.js` — only used by trip-pipeline
+- `ui/trip.html`, `ui/journals.html`, `ui/recap.html` — no navigation to any of them
+- `ui/js/processing.js`, `ui/js/results.js`, `ui/js/setup.js`, `ui/js/recap-creator.js` — not included in any active HTML
+
+**Dead code removed from active files**
+- `api.js`: entire recap block (~90 lines) + `autoExportXML()` + `openWhenDone` setting + `description` param threading + orphaned `/trip`, `/journals`, `/recap` routes in `server/index.js`
+- `journal-pipeline.js`: `refineBestFrames()` function (text-only Haiku seek refinement — removed when Vision bestFrame was added)
+- `credits.js`: `save()` and `deduct()` — both unwired per CLAUDE.md; simplified to just `load()`
+- `configure.html`: director's notes CSS (`.desc-field`, `.desc-textarea`, `.mic-btn`, `@keyframes pulse-mic`), `dayTitleCards` JS variable + toggle function + POST body key
+- `journal.html`: dead `xmlPath` variable (server never populates it)
+- `clip-vision-claude.js`: stale `face-detect.js` reference comments; `directorNotes` param fully removed from `buildPrompt`, `askClaude`, `analyzeClip` and all callers; `matchesDirectorNotes` log line removed (was always `notes=undefined`)
+- `clip-vision.js`, `clip-vision-apple.js`: `directorNotes` param removed from `analyzeClip` signatures
+- `journal-video.js`: `isFirst = false` dead variable + `fadeIn` property on segs (fade-in was disabled, code was dead)
+- `whisper.js`: `findBestWindow` passthrough wrapper removed; all callers now call `findDenseWindow` directly
+
+**Robustness fixes**
+- **API key ignored after save**: `whisper.js` and `clip-vision-claude.js` both had a singleton Anthropic client cached on first use and never cleared. Added `resetClient()` to both, called from `POST /settings` alongside existing `resetBackendCache()`. New users who paste their key don't need to restart.
+- **Slo-mo / time-lapse clips now go through Vision**: Previously pushed straight to b-roll with no vision property, skipping quality scoring, rotation detection, and best seek point. Now Vision runs first; clips are still forced to b-roll regardless of result but get proper quality score (affects ranking), rotation (affects orientation in output), and bestFrame (affects seek point). Low-quality slo-mo (score < 15) is now correctly rejected.
+- **Temp directory cleanup**: `finally` block used `rmdirSync(tmpDir)` which silently failed because bridge files, `concat.txt`, and `captions.srt` were still inside. Changed to `rmSync(tmpDir, { recursive: true, force: true })`. Every render now fully cleans up its temp folder.
+- **Job name always "Slices"**: `path.basename(path.dirname(result.videoPath))` always resolved to the output folder name. Fixed to `path.basename(result.videoPath, '.mp4')` — recent slideshow now shows actual filenames.
+- **`targetDuration` validation**: Raw HTTP body value passed directly to pipeline with no guard. Now: `Math.max(60, parseInt(req.body.targetDuration, 10) || 180)` — can never be 0 or NaN which would cause zero-length clip math and ffmpeg crash.
+- **`buildSequential` missing return**: Function returned `undefined`; callers assumed `{ resolvedTimeline, srtPath }`. Added `return { resolvedTimeline: null, srtPath: null }` — re-edits now consistent with main render path.
+
+**Pending robustness issues (not yet fixed — start here next session)**
+1. **Thumbnail crash after clear** (`api.js` line ~495): `/journals/thumbnail` does `loadExports().map(e => path.resolve(e.videoPath))` — after `/journals/clear`, entries have no `videoPath`, so `path.resolve(undefined)` throws. Fix: add `.filter(e => e.videoPath)` before the map.
+2. **Multi-day temp files not cleaned on failure** (`journal-pipeline.js`): Per-day segment files written to `os.tmpdir()` are cleaned inline on the happy path only. If any day fails, the large segment files (200–400MB each) are orphaned in `/tmp`. Needs try/finally wrapping the day loop.
+3. **Multi-day concat has no timeout** (`journal-pipeline.js` line ~714): The final ffmpeg stream-copy concat has no `timeout` option. Every other `execFileAsync` call has one. Could hang indefinitely on corrupt segment.
+4. **Highlight reel missing stats** (`journal-pipeline.js`): Highlight reel return value doesn't include `footageDates`, `transcriptExcerpt`, or `stats.rawDurationSec`. Those exports show up blank in the stats banner.
+5. **Thumbnail model unversioned** (`api.js` line ~578): `/journals/thumbnail` uses `'claude-haiku-4-5'` (no version date). All other calls use `'claude-haiku-4-5-20251001'`. Standardize.
+6. **`configureMode` sessionStorage** (`home.js` line ~423): `sessionStorage.setItem('configureMode', 'single')` written on every build start but never read anywhere. Delete it.
+7. **`Onboarding` dead reference** (`home.js` lines ~425–427): Checks `typeof Onboarding !== 'undefined'` — `Onboarding` is never defined anywhere. Two dead lines.
+8. **Photos Library IPC** (`main.js` + `preload.js`): `photos:libraryPath` handler and `window.electronAPI.getPhotosLibraryPath` are registered but never called from any UI. Dead feature stub.
+9. **`_activeMode` implicit global** (`home.js`): Assigned at two locations but never declared with `let`/`const`. Works today, breaks under strict mode.
+10. **`dayBoundaries` / day markers in XML** (`fcpxml.js`): `generate()` accepts and processes `dayBoundaries` to build Premiere markers, but no caller ever passes it — the feature is silently a no-op. Wire it up or remove it.
+11. **Config read pattern repeated 3×** (`journal-pipeline.js`): Same inline IIFE to read `config.json` appears at lines ~521, ~632, ~840. Should be one function at top of file or moved to `app-data.js`.
+12. **`broll-indexer.js` cfg/opts scope bug**: `processClip` calls `askSettleStart(..., cfg)` but variable in scope is `opts`. Causes `scale=undefined:-2` in ffmpeg args, silently produces 0 results for every clip. Fix: pass `opts` not `cfg`.

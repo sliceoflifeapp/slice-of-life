@@ -7,6 +7,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   windowControl:        (action) => ipcRenderer.send('window:control', action),
   openPath:             (path) => ipcRenderer.invoke('shell:openPath', path),
   showInFinder:         (path) => ipcRenderer.invoke('shell:showInFinder', path),
-  getPhotosLibraryPath: ()     => ipcRenderer.invoke('photos:libraryPath'),
   openExternal:         (url)  => ipcRenderer.invoke('shell:openExternal', url),
 });

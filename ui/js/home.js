@@ -1,21 +1,94 @@
-// ── FAQ ───────────────────────────────────────────────────────────────────────
+// ── FAQ (now lives inside Settings) ──────────────────────────────────────────
 
-function openFaq() {
-  document.getElementById('faq-overlay').classList.add('open');
-}
-function closeFaq() {
-  document.getElementById('faq-overlay').classList.remove('open');
-}
-function closeFaqOnOverlay(e) {
-  if (e.target === document.getElementById('faq-overlay')) closeFaq();
-}
 function toggleFaq(questionEl) {
   const item = questionEl.closest('.faq-item');
   const isOpen = item.classList.contains('open');
-  // Close all open items first
   document.querySelectorAll('.faq-item.open').forEach(el => el.classList.remove('open'));
   if (!isOpen) item.classList.add('open');
 }
+
+function toggleSettingsFaq(el) {
+  el.classList.toggle('open');
+  document.getElementById('settings-faq-items').classList.toggle('open');
+}
+
+// ── Today's Prompt panel ──────────────────────────────────────────────────────
+
+const NOTEPAD_KEY = 'sol-notepad';
+let _promptLoaded  = false;
+let _notepadMicRecorder = null;
+let _notepadMicListening = false;
+let _activeMode = null;
+
+function openPrompt() {
+  document.getElementById('prompt-overlay').classList.add('open');
+  document.getElementById('notepad-textarea').value = localStorage.getItem(NOTEPAD_KEY) || '';
+  if (!_promptLoaded) loadTodaysPrompt();
+}
+function closePrompt() {
+  document.getElementById('prompt-overlay').classList.remove('open');
+}
+function closePromptOnOverlay(e) {
+  if (e.target === document.getElementById('prompt-overlay')) closePrompt();
+}
+
+async function toggleNotepadMic() {
+  const btn = document.getElementById('notepad-mic-btn');
+  const ta  = document.getElementById('notepad-textarea');
+
+  if (_notepadMicListening) {
+    _notepadMicRecorder?.stop();
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const chunks = [];
+    _notepadMicRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+
+    _notepadMicRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+
+    _notepadMicRecorder.onstart = () => {
+      _notepadMicListening = true;
+      btn.classList.add('listening');
+      btn.innerHTML = '<i class="ti ti-microphone-off"></i>';
+    };
+
+    _notepadMicRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      _notepadMicListening = false;
+      btn.classList.remove('listening');
+      btn.innerHTML = '<i class="ti ti-loader-2"></i>';
+      btn.disabled = true;
+
+      try {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        const form = new FormData();
+        form.append('audio', blob, 'recording.webm');
+        const res  = await fetch('/api/stt', { method: 'POST', body: form });
+        const data = await res.json();
+        if (data.text) {
+          ta.value = ta.value ? ta.value.trimEnd() + '\n' + data.text : data.text;
+          localStorage.setItem(NOTEPAD_KEY, ta.value);
+        }
+      } catch {}
+
+      btn.innerHTML = '<i class="ti ti-microphone"></i>';
+      btn.disabled  = false;
+    };
+
+    _notepadMicRecorder.start();
+  } catch {
+    btn.classList.add('listening');
+    setTimeout(() => btn.classList.remove('listening'), 800);
+  }
+}
+
+// Persist notepad on every keystroke
+document.addEventListener('DOMContentLoaded', () => {
+  const ta = document.getElementById('notepad-textarea');
+  if (ta) ta.addEventListener('input', () => localStorage.setItem(NOTEPAD_KEY, ta.value));
+});
 
 // ── Filming guide ─────────────────────────────────────────────────────────────
 
@@ -68,8 +141,7 @@ async function pickMacFolder(mode) {
   }
 
   if (!folderPath) return;
-  if (mode === 'trip') startTrip(folderPath);
-  else                 startSession(folderPath);
+  startSession(folderPath);
 }
 
 // ── Device picker ──────────────────────────────────────────────────────────────
@@ -111,8 +183,7 @@ async function openDevicePicker(mode) {
         <span class="album-count">${device.hasDcim ? 'Camera / Phone' : 'Drive'}</span>`;
       row.addEventListener('click', () => {
         closeDevicePicker();
-        if (_activeMode === 'trip') startTrip(device.scanPath);
-        else                        startSession(device.scanPath);
+        startSession(device.scanPath);
       });
       body.appendChild(row);
     }
@@ -135,45 +206,148 @@ function escHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ── Today's prompt ────────────────────────────────────────────────────────────
+
+async function loadTodaysPrompt() {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const cacheKey = `prompt-${todayStr}`;
+
+  let data = null;
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) {
+    try { data = JSON.parse(cached); } catch {}
+  }
+
+  if (!data) {
+    try {
+      const res = await fetch('/api/prompt/today');
+      data = await res.json();
+      if (data.ok && data.narration) {
+        localStorage.setItem(cacheKey, JSON.stringify({ narration: data.narration, filming: data.filming }));
+      }
+    } catch {}
+  }
+
+  if (data?.narration) {
+    document.getElementById('prompt-narration').textContent = data.narration;
+    document.getElementById('prompt-filming').textContent   = data.filming;
+    document.getElementById('prompt-loading').style.display  = 'none';
+    document.getElementById('prompt-content').classList.add('visible');
+    _promptLoaded = true;
+  }
+}
+
 // ── DOMContentLoaded ───────────────────────────────────────────────────────────
 
 // ── Recent banner ──────────────────────────────────────────────────────────────
 
+// Subtle gradient palettes for placeholder cards — all in the app's dark-blue tone
+const PLACEHOLDER_GRADIENTS = [
+  'linear-gradient(135deg, rgba(18,42,90,0.9) 0%, rgba(8,22,55,0.95) 100%)',
+  'linear-gradient(155deg, rgba(12,38,80,0.9) 0%, rgba(25,55,105,0.85) 100%)',
+  'linear-gradient(120deg, rgba(8,28,70,0.95) 0%, rgba(20,48,95,0.85) 100%)',
+  'linear-gradient(145deg, rgba(22,48,100,0.9) 0%, rgba(10,28,65,0.95) 100%)',
+  'linear-gradient(130deg, rgba(15,35,78,0.9) 0%, rgba(30,58,110,0.80) 100%)',
+  'linear-gradient(160deg, rgba(10,25,62,0.95) 0%, rgba(18,44,88,0.88) 100%)',
+  'linear-gradient(125deg, rgba(20,45,95,0.88) 0%, rgba(8,24,58,0.96) 100%)',
+  'linear-gradient(140deg, rgba(14,32,72,0.92) 0%, rgba(26,52,102,0.84) 100%)',
+];
+
+function buildPlaceholderThumb(idx) {
+  const thumb = document.createElement('div');
+  thumb.className = 'banner-thumb banner-thumb-placeholder';
+  thumb.style.background = PLACEHOLDER_GRADIENTS[idx % PLACEHOLDER_GRADIENTS.length];
+  // Subtle camera icon centered
+  thumb.innerHTML = `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:0.12;">
+    <i class="ti ti-camera" style="font-size:32px;color:#fff;"></i>
+  </div>`;
+  return thumb;
+}
+
 async function loadRecentBanner() {
   try {
-    const { journals } = await fetch('/api/journals/recent').then(r => r.json());
-    if (!journals || journals.length === 0) return;
+    const data     = await fetch('/api/journals/recent').then(r => r.json());
+    const journals = data.journals || [];
 
     const section = document.getElementById('recent-section');
     const track   = document.getElementById('banner-items');
+    track.innerHTML = '';
     section.classList.add('visible');
 
-    // Duplicate items for seamless infinite scroll — but only if the list is
-    // long enough that it needs repeating to fill the track width. With only
-    // 1–2 journals, duplicating just looks like a bug; a static strip is fine.
-    const MIN_FOR_LOOP = 5;
-    const shouldLoop   = journals.length >= MIN_FOR_LOOP;
-    const items        = shouldLoop ? [...journals, ...journals] : journals;
-    if (!shouldLoop) track.style.animation = 'none';
-    for (const j of items) {
-      const thumb = document.createElement('div');
-      thumb.className = 'banner-thumb';
-      const imgSrc = j.thumbPath
-        ? `/api/journals/thumbfile?file=${encodeURIComponent(j.thumbPath.split('/').pop())}`
-        : `/api/journals/thumbnail?videoPath=${encodeURIComponent(j.videoPath)}&t=${Date.now()}`;
-      thumb.innerHTML = `<img src="${imgSrc}" onerror="this.style.opacity='0'">`;
-      track.appendChild(thumb);
+    const streakSection = document.getElementById('streak-section');
+    const streakLabel   = document.getElementById('streak-label');
+    if (streakSection) streakSection.classList.add('visible');
+    if (streakLabel) {
+      if (data.streak > 0) {
+        streakLabel.textContent = `${data.streak}-day streak`;
+      } else if (data.hasHistory) {
+        streakLabel.textContent = `Start your streak`;
+      } else {
+        streakLabel.textContent = `Let's make your first Slice`;
+      }
+    }
+
+    // Build one full "page" of cards: real items padded with placeholders to MIN_CARDS.
+    // Then clone the entire page so both halves are identical — guarantees a seamless loop.
+    const MIN_CARDS = 8;
+    const placeholderCount = Math.max(0, MIN_CARDS - journals.length);
+
+    const buildPage = () => {
+      const frag = document.createDocumentFragment();
+      for (const j of journals) {
+        const thumb = document.createElement('div');
+        thumb.className = 'banner-thumb';
+        const thumbFile = j.thumbPath ? j.thumbPath.split('/').pop() : null;
+        const bust = j.exportedAt ? `&t=${new Date(j.exportedAt).getTime()}` : '';
+        const imgSrc = thumbFile
+          ? `/api/journals/thumbfile?file=${encodeURIComponent(thumbFile)}${bust}`
+          : `/api/journals/thumbnail?videoPath=${encodeURIComponent(j.videoPath)}`;
+        thumb.innerHTML = `<img src="${imgSrc}" onerror="this.style.opacity='0'">`;
+        frag.appendChild(thumb);
+      }
+      for (let i = 0; i < placeholderCount; i++) {
+        frag.appendChild(buildPlaceholderThumb(i));
+      }
+      return frag;
+    };
+
+    // Append page 1 then page 2 (cloned) — animation scrolls exactly -50% to loop
+    track.appendChild(buildPage());
+    track.appendChild(buildPage());
+
+    // Only animate if there's enough content to actually scroll
+    if (MIN_CARDS < 5) {
+      track.style.animation = 'none';
     }
   } catch {}
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  const firstOpen = !sessionStorage.getItem('introPlayed');
+  if (firstOpen) sessionStorage.setItem('introPlayed', '1');
+
   startOrbs();
+
+  if (firstOpen) {
+    const splash = document.getElementById('intro-splash');
+    splash.classList.add('active');
+    if (typeof playIntroSound === 'function') playIntroSound();
+    window.runIntroOrb(() => {
+      splash.classList.add('logo-out');
+      setTimeout(() => {
+        splash.classList.add('done');
+        document.getElementById('main-content').classList.add('visible');
+      }, 550);
+    });
+  } else {
+    document.getElementById('main-content').classList.add('visible');
+  }
+
   loadRecentBanner();
 
-  // Show filming guide on first launch
+  // Show filming guide on first launch — delay so intro can finish first
   if (!localStorage.getItem('hasSeenGuide')) {
-    setTimeout(openGuide, 600);
+    setTimeout(openGuide, firstOpen ? 3800 : 600);
   }
 
   // Show offline notice when no internet or no API key.
@@ -188,6 +362,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   fetch('/api/credits').then(r => r.json()).then(data => {
     document.getElementById('credits-count').textContent =
       `${data.credits.toLocaleString()} remaining`;
+  }).catch(() => {});
+
+  // Load micro-stats
+  document.getElementById('micro-stats').style.display = 'flex';
+  fetch('/api/stats').then(r => r.json()).then(({ slices, clips, footage }) => {
+    document.getElementById('stat-slices').textContent  = slices;
+    document.getElementById('stat-clips').textContent   = clips;
+    document.getElementById('stat-footage').textContent = footage === '0m' ? '—' : footage;
   }).catch(() => {});
 
   // ── Drag and drop onto either mode card ───────────────────────────────────
@@ -236,20 +418,8 @@ function useLastFolder() {
   if (last) startSession(last);
 }
 
-function startTrip(folderPath) {
-  rememberFolder(folderPath);
-  sessionStorage.setItem('configureFolderPath', folderPath);
-  sessionStorage.setItem('configureMode', 'trip');
-  window.location.href = '/configure';
-}
-
 function startSession(folderPath) {
   rememberFolder(folderPath);
   sessionStorage.setItem('configureFolderPath', folderPath);
-  sessionStorage.setItem('configureMode', 'single');
-  // Advance onboarding to step 1 (configure build button)
-  if (typeof Onboarding !== 'undefined' && sessionStorage.getItem('onboardingStep') === '0') {
-    sessionStorage.setItem('onboardingStep', '1');
-  }
   window.location.href = '/configure';
 }

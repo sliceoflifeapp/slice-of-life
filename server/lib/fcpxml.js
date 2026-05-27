@@ -184,7 +184,6 @@ function buildFromTimeline(resolvedTimeline) {
   const v1 = [];
   const v2 = [];
   let clipId = 1;
-  const dayFirstFrame = new Map();
 
   // Each narration section = consecutive entries sharing the same aroll clip path.
   // V1 gets one item per section spanning [narr_start, narr_end] with correct srcIn/srcOut.
@@ -201,9 +200,6 @@ function buildFromTimeline(resolvedTimeline) {
       let   narrEnd      = entry.timelineSec + entry.dur; // updated as we find more aroll segs
       let   firstSrcIn   = entry.srcIn;
       let   lastSrcOut   = entry.srcOut;
-
-      const di = entry.clip.dayIndex ?? 0;
-      if (!dayFirstFrame.has(di)) dayFirstFrame.set(di, f(sectionStart));
 
       // Scan ahead: collect all entries for this section
       let j = i + 1;
@@ -233,8 +229,6 @@ function buildFromTimeline(resolvedTimeline) {
       for (let k = i + 1; k < j; k++) {
         const e = resolvedTimeline[k];
         if (e.clipType !== 'aroll') {
-          const di2 = e.clip.dayIndex ?? 0;
-          if (!dayFirstFrame.has(di2)) dayFirstFrame.set(di2, f(e.timelineSec));
           v2.push({
             id:   `clipitem-v2-${clipId++}`,
             clip: e.clip,
@@ -250,8 +244,6 @@ function buildFromTimeline(resolvedTimeline) {
       i = j;
     } else {
       // Broll-only entry (highlight reel or broll before any aroll)
-      const di = entry.clip.dayIndex ?? 0;
-      if (!dayFirstFrame.has(di)) dayFirstFrame.set(di, f(entry.timelineSec));
       v2.push({
         id:   `clipitem-v2-${clipId++}`,
         clip: entry.clip,
@@ -265,10 +257,10 @@ function buildFromTimeline(resolvedTimeline) {
     }
   }
 
-  return { v1, v2, dayFirstFrame };
+  return { v1, v2 };
 }
 
-function generate({ assembly, resolvedTimeline, title, date, pacingParams, orientation, dayBoundaries }) {
+function generate({ assembly, resolvedTimeline, title, date, pacingParams, orientation }) {
   fileRegistry.clear();
   fileCounter = 1;
 
@@ -285,16 +277,15 @@ function generate({ assembly, resolvedTimeline, title, date, pacingParams, orien
   const seqH = isVertical ? 1920 : detH;
 
   let clipId = 1;
-  let v1, v2, dayFirstFrame;
+  let v1, v2;
 
   if (resolvedTimeline && resolvedTimeline.length > 0) {
     // Use the renderer's actual segment list — guaranteed to match the MP4.
-    ({ v1, v2, dayFirstFrame } = buildFromTimeline(resolvedTimeline));
+    ({ v1, v2 } = buildFromTimeline(resolvedTimeline));
   } else {
     // Fallback: re-compute from assembly (for old sidecars without resolvedTimeline).
     v1 = [];
     v2 = [];
-    dayFirstFrame = new Map();
 
     if (arollClips.length > 0) {
       const sectionMap = arollClips.map(aroll => ({ aroll, brolls: [] }));
@@ -328,9 +319,6 @@ function generate({ assembly, resolvedTimeline, title, date, pacingParams, orien
         const cutaways   = brolls.slice(0, slotsPerAroll[ai]);
         const overflow   = brolls.slice(slotsPerAroll[ai]);
 
-        const di = aroll.dayIndex ?? 0;
-        if (!dayFirstFrame.has(di)) dayFirstFrame.set(di, timelinePos);
-
         v1.push({ id: `clipitem-v1-${clipId++}`, clip: aroll, timelineStart: timelinePos, timelineEnd: timelinePos + narrFrames, srcIn: 0, srcOut: narrFrames });
 
         let brollQ = [...cutaways];
@@ -360,8 +348,6 @@ function generate({ assembly, resolvedTimeline, title, date, pacingParams, orien
       for (const clip of assembly.filter(c => c.clipType !== 'aroll')) {
         const dur = Math.min(BROLL_CUT, clip.duration || BROLL_CUT);
         const frames = f(dur);
-        const di = clip.dayIndex ?? 0;
-        if (!dayFirstFrame.has(di)) dayFirstFrame.set(di, t);
         v2.push({ id: `clipitem-v2-${clipId++}`, clip, timelineStart: t, timelineEnd: t + frames, srcIn: 0, srcOut: frames });
         t += frames;
       }
@@ -380,31 +366,13 @@ function generate({ assembly, resolvedTimeline, title, date, pacingParams, orien
 
   const seqName = escXml(title || `Slice of Life -- ${date || new Date().toISOString().slice(0, 10)}`);
 
-  // Build chapter markers for day boundaries (skip day 0)
-  let markersXml = '';
-  if (dayBoundaries && dayBoundaries.length > 1) {
-    markersXml = dayBoundaries
-      .filter(b => b.dayIndex > 0)
-      .map(b => {
-        const frame = dayFirstFrame.get(b.dayIndex) ?? 0;
-        return `
-		<marker>
-			<name>${escXml(b.label)}</name>
-			<in>${frame}</in>
-			<out>${frame}</out>
-			<comment></comment>
-		</marker>`;
-      })
-      .join('');
-  }
-
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE xmeml>
 <xmeml version="4">
 	<sequence>
 		<rate><timebase>${FPS}</timebase><ntsc>FALSE</ntsc></rate>
 		<name>${seqName}</name>
-		<duration>${totalFrames}</duration>${markersXml}
+		<duration>${totalFrames}</duration>
 		<media>
 			<video>
 				<format>

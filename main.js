@@ -114,25 +114,6 @@ ipcMain.handle('shell:openExternal', (_, url) => {
   shell.openExternal(url);
 });
 
-ipcMain.handle('photos:libraryPath', async () => {
-  const os   = require('os');
-  const fs   = require('fs');
-  const path = require('path');
-
-  // Standard Photos Library location
-  const candidates = [
-    path.join(os.homedir(), 'Pictures', 'Photos Library.photoslibrary', 'originals'),
-    path.join(os.homedir(), 'Pictures', 'Photos Library.photoslibrary', 'Masters'), // older macOS
-  ];
-
-  for (const p of candidates) {
-    try {
-      fs.accessSync(p, fs.constants.R_OK);
-      return p;
-    } catch {}
-  }
-  return null;
-});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

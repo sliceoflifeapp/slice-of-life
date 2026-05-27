@@ -25,7 +25,6 @@ router.get('/settings', (req, res) => {
       hasDevKey:       !!process.env.ANTHROPIC_API_KEY,
       keyHint:         ownKey ? ownKey.slice(0, 8) + '…' : null,
       outputFolder:    cfg.outputFolder || path.join(os.homedir(), 'Movies', 'Slices'),
-      openWhenDone:    cfg.openWhenDone !== false,
       isOnline,
       renderLogPath:   logPath,
       renderLogExists: logExists,
@@ -38,16 +37,14 @@ router.post('/settings', (req, res) => {
   try {
     const cfgPath = configPath();
     const cfg = loadConfig();
-    const { apiKey, outputFolder, openWhenDone } = req.body;
+    const { apiKey, outputFolder } = req.body;
     if (apiKey        !== undefined) cfg.anthropicApiKey = apiKey;
     if (outputFolder  !== undefined) cfg.outputFolder    = outputFolder;
-    if (openWhenDone  !== undefined) cfg.openWhenDone    = openWhenDone;
-    if (req.body.visionBackend !== undefined) cfg.visionBackend = req.body.visionBackend;
     fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
     fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-    // Reset vision router cache so the new backend takes effect on next render
-    try { require('../lib/clip-vision').resetBackendCache(); } catch {}
-    console.log(`[settings] saved to ${cfgPath} — hasKey=${!!cfg.anthropicApiKey} vision=${cfg.visionBackend || 'apple'}`);
+    try { require('../lib/clip-vision-claude').resetClient(); } catch {}
+    try { require('../lib/whisper').resetClient(); } catch {}
+    console.log(`[settings] saved to ${cfgPath} — hasKey=${!!cfg.anthropicApiKey}`);
     res.json({ ok: true });
   } catch (err) {
     console.error('[settings] save failed:', err.message);
@@ -166,14 +163,15 @@ router.post('/files/stage', (req, res) => {
 const journalJobs = new Map();
 
 router.post('/journal/start', (req, res) => {
-  const { folderPath, targetDuration, pacingParams, description } = req.body;
+  const { folderPath, pacingParams } = req.body;
+  const targetDuration = Math.max(60, parseInt(req.body.targetDuration, 10) || 180);
   if (!folderPath) return res.status(400).json({ error: 'folderPath required' });
   const jobId = `journal-${Date.now()}`;
   journalJobs.set(jobId, { status: 'running', progress: 0, message: 'Starting…' });
   res.json({ ok: true, jobId });
 
   const pipeline = require('../lib/journal-pipeline');
-  const pipelineOpts = { targetDuration, description,
+  const pipelineOpts = { targetDuration,
     highSensitivity: req.body.highSensitivity || false,
     highlightOnly:   req.body.highlightOnly   || false,
     captions:        req.body.captions        || false,
@@ -196,11 +194,10 @@ router.post('/journal/start', (req, res) => {
       detectedResolution: detectedResolution || current.detectedResolution || null,
     });
   }, pacingParams).then(result => {
-    const name    = path.basename(path.dirname(result.videoPath));
-    const xmlPath = autoExportXML(result, name, pacingParams, pipelineOpts.orientation);
+    const name    = path.basename(result.videoPath, '.mp4');
     const renderOpts = { captions: pipelineOpts.captions, captionStyle: pipelineOpts.captionStyle, orientation: pipelineOpts.orientation, pacingParams, pacing: req.body.pacing || null };
-    journalJobs.set(jobId, { status: 'done', progress: 100, message: 'Done!', ...result, xmlPath, assemblyPath: result.assemblyPath || null, renderOpts });
-    updateStyleProfile({ pacing: req.body.pacing, brollStyle: req.body.brollStyle, captions: pipelineOpts.captions, captionStyle: pipelineOpts.captionStyle }, 1);
+    journalJobs.set(jobId, { status: 'done', progress: 100, message: 'Done!', ...result, assemblyPath: result.assemblyPath || null, renderOpts });
+    updateStyleProfile({ pacing: req.body.pacing, captions: pipelineOpts.captions, captionStyle: pipelineOpts.captionStyle }, 1);
     recordExport(result.videoPath, name, result.assembly, result.thumbPath, folderPath, result.transcriptExcerpt, result.footageDates, result.stats?.rawDurationSec, result.stats?.totalClips);
     analytics.track('render_completed', {
       mode: 'single',
@@ -216,7 +213,7 @@ router.post('/journal/start', (req, res) => {
       const logHint = err.debugLogPath ? ` Debug log: ${err.debugLogPath}` : '';
       journalJobs.set(jobId, { status: 'no_aroll', progress: 0, message: `No narration detected.${logHint}`,
         debugLogPath: err.debugLogPath || null,
-        folderPath, savedOpts: { targetDuration, pacingParams, description,
+        folderPath, savedOpts: { targetDuration, pacingParams,
           captions: pipelineOpts.captions, captionStyle: pipelineOpts.captionStyle,
           orientation: pipelineOpts.orientation } });
       analytics.track('render_no_narration', { mode: 'single' });
@@ -249,107 +246,38 @@ router.get('/journal/scan', async (req, res) => {
   }
 });
 
-// ── Trip pipeline ─────────────────────────────────────────────────────────────
+// ── FCPXML export ─────────────────────────────────────────────────────────────
 
+router.post('/export/fcpxml/job', (req, res) => {
+  const { jobId } = req.body;
+  const job = journalJobs.get(jobId);
+  if (!job || job.status !== 'done') return res.status(404).json({ error: 'Job not found or not complete' });
 
-// ── Recap ─────────────────────────────────────────────────────────────────────
-
-const recapJobs = new Map();
-
-router.get('/recap/scan', (req, res) => {
-  const { folderPath } = req.query;
-  if (!folderPath) return res.status(400).json({ error: 'folderPath required' });
   try {
-    const scanner  = require('../lib/scanner');
-    const files    = scanner.fullScan(folderPath);
-    const eligible = files.filter(f =>
-      (f.type === 'photo' || f.type === 'video') &&
-      fs.existsSync(f.path + '.gather.json')
-    );
-    res.json({ total: files.length, eligible: eligible.length });
+    let assembly = job.assembly;
+    let resolvedTimeline = job.resolvedTimeline || null;
+    if ((!assembly || !assembly.length) && job.assemblyPath && fs.existsSync(job.assemblyPath)) {
+      const stored = JSON.parse(fs.readFileSync(job.assemblyPath, 'utf8'));
+      assembly = stored.assembly;
+      resolvedTimeline = stored.resolvedTimeline || null;
+    }
+    if (!assembly || !assembly.length) return res.status(400).json({ error: 'No assembly data available' });
+
+    const fcpxml  = require('../lib/fcpxml');
+    const pacingParams = job.renderOpts?.pacingParams || null;
+    const orientation  = job.renderOpts?.orientation  || 'landscape';
+    const title   = path.basename(path.dirname(job.videoPath || '')) || 'Slice of Life';
+    const xml     = fcpxml.generate({ assembly, resolvedTimeline, title, pacingParams, orientation });
+    const now2    = new Date();
+    const hhmm2   = `${String(now2.getHours()).padStart(2,'0')}${String(now2.getMinutes()).padStart(2,'0')}`;
+    const outName = `${title.replace(/[^a-z0-9 _-]/gi, '_')}_${hhmm2}.xml`;
+    const outPath = path.join(os.homedir(), 'Downloads', outName);
+    fs.writeFileSync(outPath, xml, 'utf8');
+    res.json({ ok: true, filePath: outPath });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
-
-router.post('/recap/create', (req, res) => {
-  const { folderPath, dateFrom, dateTo, recapType, duration, cutSpeed } = req.body;
-  if (!folderPath) return res.status(400).json({ error: 'folderPath required' });
-  const jobId = `recap-${Date.now()}`;
-  recapJobs.set(jobId, { status: 'running', progress: 0, message: 'Starting…' });
-  res.json({ ok: true, jobId });
-  runRecap({ jobId, folderPath, dateFrom, dateTo, recapType, duration, cutSpeed });
-});
-
-router.get('/recap/status/:jobId', (req, res) => {
-  const job = recapJobs.get(req.params.jobId);
-  if (!job) return res.status(404).json({ error: 'Job not found' });
-  res.json(job);
-});
-
-async function runRecap({ jobId, folderPath, dateFrom, dateTo, recapType, duration, cutSpeed }) {
-  const update = (msg, pct, extra = {}) =>
-    recapJobs.set(jobId, { ...recapJobs.get(jobId), ...extra, message: msg, progress: pct });
-
-  try {
-    const recap   = require('../lib/recap');
-    const scanner = require('../lib/scanner');
-
-    update('Scanning folder…', 10);
-    const scanned   = scanner.fullScan(folderPath);
-    const typeFilter = recapType === 'videos' ? f => f.type === 'video'
-                     : recapType === 'photos' ? f => f.type === 'photo'
-                     : f => f.type === 'photo' || f.type === 'video';
-    const files = scanned.filter(typeFilter);
-    if (files.length === 0) throw new Error('No media files found in that folder');
-
-    update('Building file list…', 20);
-    const from = dateFrom ? new Date(dateFrom + '-01') : null;
-    const to   = dateTo   ? new Date(dateTo   + '-01') : null;
-    if (to) to.setMonth(to.getMonth() + 1);
-
-    const dated = [];
-    for (const f of files) {
-      let date = null;
-      try { const s = JSON.parse(fs.readFileSync(f.path + '.gather.json', 'utf8')); if (s.date) date = new Date(s.date); } catch {}
-      if (!date) { try { const st = fs.statSync(f.path); date = st.birthtime || st.mtime; } catch {} }
-      if (from && date && date < from) continue;
-      if (to   && date && date > to)   continue;
-      dated.push({ ...f, date });
-    }
-    if (dated.length === 0) throw new Error('No files found in that date range');
-
-    const byFolder = new Map();
-    for (const f of dated) {
-      const folder = path.dirname(f.path);
-      if (!byFolder.has(folder)) byFolder.set(folder, []);
-      byFolder.get(folder).push(f);
-    }
-    const labeled = [...byFolder.entries()].map(([, files]) => ({
-      startDate: files.find(f => f.date)?.date || null,
-      misc: false,
-      files: files.map(f => ({ path: f.path, type: f.type, date: f.date })),
-    }));
-
-    update('Generating recap video…', 30);
-    const cfg       = loadConfig();
-    const outputBase = cfg.outputFolder || path.join(os.homedir(), 'Movies', 'Slices');
-    fs.mkdirSync(outputBase, { recursive: true });
-    const outPath = path.join(outputBase, `Recap-${Date.now()}.mp4`);
-
-    await recap.generate(labeled, outputBase, {
-      recap: true, recapType: recapType || 'mix',
-      duration: duration || '1min', cutSpeed: cutSpeed || 'normal',
-      outputPath: outPath,
-    }, (pct) => update('Generating recap video…', 30 + Math.round(pct * 0.65)));
-
-    recapJobs.set(jobId, { status: 'done', progress: 100, message: 'Done!', outputPath: outPath });
-  } catch (err) {
-    recapJobs.set(jobId, { status: 'error', progress: 0, message: err.message, error: err.message });
-  }
-}
-
-// ── FCPXML export ─────────────────────────────────────────────────────────────
 
 router.post('/export/fcpxml', (req, res) => {
   const { assembly, title, date, videoPath, pacingParams } = req.body;
@@ -561,7 +489,7 @@ router.get('/journals/thumbnail', async (req, res) => {
 
   // Security: only serve thumbnails for app-built journals
   // Only serve thumbnails for videos the app itself exported.
-  const knownPaths = loadExports().map(e => path.resolve(e.videoPath));
+  const knownPaths = loadExports().filter(e => e.videoPath).map(e => path.resolve(e.videoPath));
   const resolved   = path.resolve(videoPath);
   if (!knownPaths.includes(resolved)) return res.status(403).end();
 
@@ -644,7 +572,7 @@ router.get('/journals/thumbnail', async (req, res) => {
           text: `These are ${frames.length} frames from a personal video journal. Pick the single most visually interesting frame to use as a thumbnail. Prefer scenic shots, interesting settings, or wide establishing shots that give a sense of place or atmosphere. Avoid blurry, dark, or very similar frames. Reply with ONLY the frame number (e.g. "3").`,
         });
         const msg = await client.messages.create({
-          model: 'claude-haiku-4-5', max_tokens: 5,
+          model: 'claude-haiku-4-5-20251001', max_tokens: 5,
           messages: [{ role: 'user', content }],
         });
         const picked = parseInt(msg.content[0].text.trim()) - 1;
@@ -792,34 +720,17 @@ router.post('/journal/reedit', (req, res) => {
     const name = path.basename(dir);
     recordExport(videoOut, name, assembly, thumbPath);
 
-    const xmlPath = autoExportXML({ assembly, resolvedTimeline, videoPath: videoOut }, name, pacingParams, orientation);
     const renderOpts = { captions: captions || false, captionStyle: captionStyle || 'clean', orientation: orientation || 'landscape', pacingParams: pacingParams || null, pacing: req.body.pacing || null };
     updateStyleProfile({ pacing: req.body.pacing, captions, captionStyle }, 2);
     journalJobs.set(jobId, {
       status: 'done', progress: 100, message: 'Done!',
       videoPath: videoOut, thumbPath, assemblyPath: newAssemblyPath,
-      outDir: dir, assembly, xmlPath, renderOpts,
+      outDir: dir, assembly, renderOpts,
     });
   }).catch(err => {
     journalJobs.set(jobId, { status: 'error', progress: 0, message: err.message, error: err.message });
   });
 });
-
-function autoExportXML(result, title, pacingParams, orientation, dayBoundaries) {
-  try {
-    const fcpxml  = require('../lib/fcpxml');
-    const xml     = fcpxml.generate({ assembly: result.assembly, resolvedTimeline: result.resolvedTimeline || null, title, pacingParams, orientation, dayBoundaries });
-    const now     = new Date();
-    const hhmm    = `${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
-    const outName = `${(title || 'Slice of Life').replace(/[^a-z0-9 _-]/gi, '_')}_${hhmm}.xml`;
-    const outPath = path.join(os.homedir(), 'Downloads', outName);
-    fs.writeFileSync(outPath, xml, 'utf8');
-    return outPath;
-  } catch (err) {
-    console.warn('Auto XML export failed:', err.message);
-    return null;
-  }
-}
 
 // ── Speech-to-text ────────────────────────────────────────────────────────────
 // Accepts a multipart/form-data upload of an audio file (webm/wav/etc.),
@@ -907,6 +818,22 @@ router.post('/stt', (req, res) => {
   });
 
   req.pipe(bb);
+});
+
+// B-roll indexer — shot boundary detection + stable ranges + representative frames
+router.post('/broll/index', async (req, res) => {
+  const { inputFolder, outputPath } = req.body || {};
+  if (!inputFolder) return res.status(400).json({ ok: false, error: 'inputFolder required' });
+
+  const defaultOut = outputPath || require('path').join(inputFolder, 'broll_index.json');
+  try {
+    const { indexBrollFolder } = require('../lib/broll-indexer');
+    const index = await indexBrollFolder(inputFolder, defaultOut);
+    res.json({ ok: true, outputPath: defaultOut, clipCount: index.clips.length });
+  } catch (err) {
+    console.error('[/broll/index]', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 module.exports = router;

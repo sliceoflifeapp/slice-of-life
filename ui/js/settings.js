@@ -1,14 +1,23 @@
+let _renderLogPath = null;
+
 async function openSettings() {
   try {
     const s = await fetch('/api/settings').then(r => r.json());
 
     document.getElementById('output-folder-input').value   = s.outputFolder || '';
 
+    _renderLogPath = s.renderLogPath || null;
+    const logBtn = document.getElementById('view-render-log-btn');
+    if (logBtn) {
+      logBtn.disabled = !s.renderLogExists;
+      logBtn.title    = s.renderLogExists ? s.renderLogPath : 'No render log yet — run a Slice first';
+    }
+
     const keyInput = document.getElementById('api-key-input');
     keyInput.value = '';
     if (s.hasOwnApiKey) {
       keyInput.placeholder = '••••••••••••••••••••';
-      renderApiStatus('own');
+      renderApiStatus('own', s.keyHint);
     } else if (s.hasDevKey) {
       keyInput.placeholder = 'sk-ant-api03-…';
       renderApiStatus('dev');
@@ -29,10 +38,11 @@ function closeSettingsOnOverlay(e) {
   if (e.target === document.getElementById('settings-overlay')) closeSettings();
 }
 
-function renderApiStatus(state) {
+function renderApiStatus(state, hint) {
   const el = document.getElementById('api-status');
+  const hintStr = hint ? ` <span style="opacity:0.5;font-size:11px">(${hint})</span>` : '';
   if (state === 'own') {
-    el.innerHTML = '<div class="api-dot ok"></div><span style="color:#60C060">Using your own API key</span>';
+    el.innerHTML = `<div class="api-dot ok"></div><span style="color:#60C060">Using your own API key${hintStr}</span>`;
   } else if (state === 'dev') {
     el.innerHTML = '<div class="api-dot ok"></div><span style="color:#60C060">AI powered by Slice of Life credits</span>';
   } else {
@@ -57,34 +67,45 @@ async function saveSettings() {
   if (apiKey) body.apiKey = apiKey;
 
   try {
-    await fetch('/api/settings', {
+    const saveRes = await fetch('/api/settings', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(body),
     });
+    if (!saveRes.ok) {
+      const errData = await saveRes.json().catch(() => ({}));
+      alert(`Settings could not be saved: ${errData.error || saveRes.status}`);
+      return;
+    }
 
     const s = await fetch('/api/settings').then(r => r.json());
     document.getElementById('api-key-input').value = '';
     document.getElementById('api-key-input').placeholder = s.hasOwnApiKey ? '••••••••••••••••••••' : 'sk-ant-api03-…';
-    if (s.hasOwnApiKey) renderApiStatus('own');
+    if (s.hasOwnApiKey) renderApiStatus('own', s.keyHint);
     else if (s.hasDevKey) renderApiStatus('dev');
     else renderApiStatus('none');
 
-    closeSettings();
+    // Flash "Saved!" so the user knows it worked
+    const statusEl = document.getElementById('api-status');
+    const prev = statusEl.innerHTML;
+    statusEl.innerHTML = '<span style="color:#60C060">✓ Saved!</span>';
+    setTimeout(() => { statusEl.innerHTML = prev; closeSettings(); }, 1200);
   } catch (err) {
     console.error('Failed to save settings:', err);
+    alert(`Settings could not be saved: ${err.message}`);
   }
+}
+
+async function viewRenderLog() {
+  if (!_renderLogPath) return;
+  try { await window.electronAPI.openPath(_renderLogPath); } catch {}
 }
 
 async function clearSlideshow() {
   try {
     await fetch('/api/journals/clear', { method: 'POST' });
-    // Hide the banner section immediately
-    const section = document.getElementById('recent-section');
-    const track   = document.getElementById('banner-items');
-    if (section) section.classList.remove('visible');
-    if (track)   track.innerHTML = '';
     closeSettings();
+    if (typeof loadRecentBanner === 'function') loadRecentBanner();
   } catch (err) {
     console.error('Failed to clear slideshow:', err);
   }

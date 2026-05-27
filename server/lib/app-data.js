@@ -33,8 +33,8 @@ function updateStyleProfile(opts, weight = 1) {
     const profile = readStyleProfile();
     const entry = { ts: Date.now(), weight };
     if (opts.pacing)                        entry.pacing       = opts.pacing;
-    if (opts.brollStyle)                    entry.brollStyle   = opts.brollStyle;
-    if (opts.captions && opts.captionStyle) entry.captionStyle = opts.captionStyle;
+    if (opts.captionStyle && opts.captions) entry.captionStyle = opts.captionStyle;
+    if (opts.captions !== undefined)        entry.captionsOn   = !!opts.captions;
     profile.history.push(entry);
     if (profile.history.length > MAX_HISTORY) profile.history = profile.history.slice(-MAX_HISTORY);
     fs.mkdirSync(getAppDataDir(), { recursive: true });
@@ -44,11 +44,13 @@ function updateStyleProfile(opts, weight = 1) {
   }
 }
 
-// Returns { pacing, brollStyle, captionStyle } defaults, or null if no history yet.
+// Returns { pacing, captionStyle, captionsOn } defaults, or null if no history yet.
+// captionsOn is null until there are at least 4 entries with a recorded value.
 function getStyleDefaults() {
   const { history } = readStyleProfile();
   if (!history.length) return null;
   const window = history.slice(-WINDOW);
+
   const tally = key => {
     const counts = {};
     for (const e of window) if (e[key]) counts[e[key]] = (counts[e[key]] || 0) + (e.weight || 1);
@@ -56,7 +58,14 @@ function getStyleDefaults() {
     if (!entries.length) return null;
     return entries.reduce((best, cur) => cur[1] > best[1] ? cur : best)[0];
   };
-  return { pacing: tally('pacing'), brollStyle: tally('brollStyle'), captionStyle: tally('captionStyle') };
+
+  const captionsEntries = window.filter(e => e.captionsOn !== undefined);
+  const captionsOn = captionsEntries.length >= 4
+    ? captionsEntries.reduce((sum, e) => sum + (e.captionsOn ? (e.weight || 1) : 0), 0) >
+      captionsEntries.reduce((sum, e) => sum + (e.weight || 1), 0) / 2
+    : null;
+
+  return { pacing: tally('pacing'), captionStyle: tally('captionStyle'), captionsOn };
 }
 
 module.exports = { getAppDataDir, updateStyleProfile, getStyleDefaults };

@@ -113,9 +113,10 @@
       color: #FFF; font-size: 14px; font-weight: 600;
       cursor: pointer; font-family: inherit;
       display: flex; align-items: center; justify-content: center; gap: 7px;
-      transition: opacity 0.15s;
+      transition: opacity 0.2s cubic-bezier(0.23, 1, 0.32, 1), transform 0.2s cubic-bezier(0.23, 1, 0.32, 1);
     }
     .btn-primary:hover { opacity: 0.88; }
+    .btn-primary:active { transform: scale(0.97); }
     .btn-secondary {
       flex: 1; padding: 13px;
       background: rgba(255,255,255,0.06);
@@ -123,9 +124,10 @@
       color: #6A9FD4; font-size: 13px;
       cursor: pointer; font-family: inherit;
       display: flex; align-items: center; justify-content: center; gap: 6px;
-      transition: background 0.15s;
+      transition: background 0.2s cubic-bezier(0.23, 1, 0.32, 1), transform 0.2s cubic-bezier(0.23, 1, 0.32, 1);
     }
     .btn-secondary:hover { background: rgba(255,255,255,0.1); }
+    .btn-secondary:active { transform: scale(0.97); }
     .btn-xml {
       flex: 1; padding: 13px;
       background: rgba(255,255,255,0.06);
@@ -133,9 +135,10 @@
       color: #6A9FD4; font-size: 13px;
       cursor: pointer; font-family: inherit;
       display: flex; align-items: center; justify-content: center; gap: 6px;
-      transition: background 0.15s;
+      transition: background 0.2s cubic-bezier(0.23, 1, 0.32, 1), transform 0.2s cubic-bezier(0.23, 1, 0.32, 1);
     }
     .btn-xml:hover { background: rgba(255,255,255,0.1); }
+    .btn-xml:active { transform: scale(0.97); }
 
     .done-location {
       display: flex; align-items: center; gap: 8px;
@@ -146,6 +149,7 @@
       border-radius: 10px;
       cursor: pointer;
       transition: background 0.15s;
+      -webkit-app-region: no-drag;
     }
     .done-location:hover { background: rgba(255,255,255,0.06); }
     .done-location-icon { color: #3A6090; font-size: 14px; flex-shrink: 0; }
@@ -154,11 +158,6 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       text-align: left;
     }
-    .done-location-change {
-      font-size: 11px; color: #3A6090; flex-shrink: 0;
-      text-decoration: underline;
-    }
-    .done-location:hover .done-location-change { color: #6A9FD4; }
 
     .done-new {
       margin-top: 12px; font-size: 12px; color: #3A6090;
@@ -174,28 +173,7 @@
     .no-aroll-title { font-size: 19px; font-weight: 600; color: #FFF; }
     .no-aroll-sub { font-size: 13px; color: #3A6090; line-height: 1.6; max-width: 300px; }
     .no-aroll-actions { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 340px; }
-    .btn-highlight {
-      width: 100%; padding: 14px;
-      background: linear-gradient(135deg,#1E5FC8,#1448A0);
-      border: none; border-radius: 12px;
-      color: #FFF; font-size: 14px; font-weight: 600;
-      cursor: pointer; font-family: inherit;
-      display: flex; align-items: center; justify-content: center; gap: 8px;
-      transition: opacity 0.15s;
-    }
-    .btn-highlight:hover { opacity: 0.88; }
-    .btn-retry {
-      width: 100%; padding: 13px;
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;
-      color: #6A9FD4; font-size: 13px;
-      cursor: pointer; font-family: inherit;
-      display: flex; align-items: center; justify-content: center; gap: 7px;
-      transition: background 0.15s;
-    }
-    .btn-retry:hover { background: rgba(255,255,255,0.1); }
-
-    .hlg-tip {
+.hlg-tip {
       display: none; width: 100%; margin-top: 14px;
       padding: 12px 14px;
       background: rgba(255,190,60,0.07);
@@ -232,8 +210,8 @@
     .reedit-panel {
       display: none; width: 100%;
       padding: 16px;
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.09); border-radius: 14px;
+      background: #061422;
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;
       flex-direction: column; gap: 14px;
       margin-top: 4px;
     }
@@ -315,9 +293,10 @@
       color: #FFF; font-size: 13px; font-weight: 600;
       cursor: pointer; font-family: inherit;
       display: flex; align-items: center; justify-content: center; gap: 7px;
-      transition: opacity 0.15s;
+      transition: opacity 0.2s cubic-bezier(0.23, 1, 0.32, 1), transform 0.2s cubic-bezier(0.23, 1, 0.32, 1);
     }
     .reedit-render-btn:hover { opacity: 0.88; }
+    .reedit-render-btn:active { transform: scale(0.97); }
     .reedit-render-btn:disabled { opacity: 0.4; pointer-events: none; }
   </style>
 </head>
@@ -355,7 +334,7 @@
             <div class="step" id="step-detect">
               <div class="step-icon"><i class="ti ti-microphone"></i></div>
               <div class="step-text">
-                <div class="step-label">Analysing &amp; transcribing</div>
+                <div class="step-label">Analyzing &amp; transcribing</div>
                 <div class="step-detail" id="detail-detect">Checking clips for narration</div>
               </div>
             </div>
@@ -387,16 +366,11 @@
         <div class="no-aroll-area" id="no-aroll-area">
           <i class="ti ti-microphone-off no-aroll-icon"></i>
           <div class="no-aroll-title">No narration detected</div>
-          <div class="no-aroll-sub">None of your clips were identified as talking-head narration. What would you like to do?</div>
-          <div class="no-aroll-actions">
-            <button class="btn-highlight" onclick="makeHighlightReel()">
-              <i class="ti ti-stars"></i> Make Highlight Reel
-            </button>
-            <button class="btn-retry" onclick="retryHighSensitivity()">
-              <i class="ti ti-refresh"></i> Try Again (Higher Sensitivity)
-            </button>
-            <button class="done-new" onclick="startNew()" style="margin-top:4px;">← Start over</button>
+          <div class="no-aroll-sub">No talking-to-camera clips were found in your footage. What would you like to do?</div>
+          <div style="padding:14px 16px;background:rgba(30,95,200,0.08);border:1px solid rgba(30,95,200,0.2);border-radius:10px;font-size:12px;color:#6A9FD4;line-height:1.7;max-width:320px;text-align:left;">
+            <strong style="color:#B8D0EE;">To get a narrated vlog:</strong> your footage needs at least one clip of you speaking directly to the camera. Even 30 seconds works. Film a quick intro — where you are, what's happening — and re-run.
           </div>
+          <button class="done-new" onclick="startNew()">← Start over</button>
         </div>
 
         <!-- Done state -->
@@ -409,12 +383,12 @@
           <div class="done-actions">
             <button class="btn-primary"   onclick="openVideo()"><i class="ti ti-player-play"></i> Watch</button>
             <button class="btn-xml"       onclick="exportXML()"><i class="ti ti-brand-adobe"></i> XML</button>
+            <button class="btn-xml" id="btn-srt" onclick="openSrt()" style="display:none;" title="Open SRT caption file"><i class="ti ti-subtitles"></i> SRT</button>
           </div>
 
           <div class="done-location" id="done-location" onclick="revealInFinder()">
             <i class="ti ti-folder done-location-icon"></i>
             <span class="done-location-path" id="done-location-path">—</span>
-            <span class="done-location-change" onclick="event.stopPropagation(); changeOutputFolder()">Change</span>
           </div>
           <!-- HLG / HDR Video tip — shown when clips were recorded in HDR Video mode -->
           <div class="hlg-tip" id="hlg-tip">
@@ -435,7 +409,7 @@
             <div class="reedit-panel-title">RE-RENDER WITH NEW SETTINGS</div>
 
             <div>
-              <div style="font-size:10px;font-weight:600;letter-spacing:0.08em;color:#3A6090;margin-bottom:8px;">ORIENTATION</div>
+              <div style="font-size:10px;font-weight:600;letter-spacing:0.08em;color:#7FB8FF;margin-bottom:8px;">ORIENTATION</div>
               <div class="reedit-orient">
                 <button class="reedit-orient-btn selected" data-orient="landscape" onclick="selectReeditOrient(this)">Landscape</button>
                 <button class="reedit-orient-btn" data-orient="vertical" onclick="selectReeditOrient(this)">Vertical</button>
@@ -443,7 +417,7 @@
             </div>
 
             <div>
-              <div style="font-size:10px;font-weight:600;letter-spacing:0.08em;color:#3A6090;margin-bottom:8px;">CUT RHYTHM</div>
+              <div style="font-size:10px;font-weight:600;letter-spacing:0.08em;color:#7FB8FF;margin-bottom:8px;">CUT RHYTHM</div>
               <div class="reedit-orient">
                 <button class="reedit-orient-btn" data-pacing="tight"    onclick="selectReeditPacing(this)">Tight</button>
                 <button class="reedit-orient-btn selected" data-pacing="balanced" onclick="selectReeditPacing(this)">Balanced</button>
@@ -457,7 +431,7 @@
             </button>
 
             <div id="reedit-style-wrap" style="display:none;">
-              <div style="font-size:10px;font-weight:600;letter-spacing:0.08em;color:#3A6090;margin-bottom:8px;">CAPTION STYLE</div>
+              <div style="font-size:10px;font-weight:600;letter-spacing:0.08em;color:#7FB8FF;margin-bottom:8px;">CAPTION STYLE</div>
               <div class="reedit-style-grid">
                 <div class="reedit-cap-card selected" data-style="clean"        onclick="selectReeditStyle(this)">Montserrat</div>
                 <div class="reedit-cap-card"          data-style="bebas"        onclick="selectReeditStyle(this)">Bebas Neue</div>
@@ -483,12 +457,13 @@
   </div>
 
   <script src="/js/orbs.js"></script>
+  <script src="/js/sound.js"></script>
   <script>
     let jobId        = sessionStorage.getItem('journalJobId');
     let videoPath    = null;
+    let srtPath      = null;
     let assembly     = null;
     let pacingParams = null;
-    let xmlPath      = null;
     let assemblyPath = null; // path to .assembly.json sidecar for re-edit
     let noArollOpts  = null; // { folderPath, savedOpts } stored when no_aroll fires
 
@@ -602,11 +577,11 @@
     }
 
     const STEPS = [
-      { id: 'step-scan',    detail: 'detail-scan',   threshold: 5  },
-      { id: 'step-detect',  detail: 'detail-detect', threshold: 20 },
-      { id: 'step-story',   detail: 'detail-story',  threshold: 65 },
-      { id: 'step-render',  detail: 'detail-render', threshold: 70 },
-      { id: 'step-video',   detail: 'detail-video',  threshold: 90 },
+      { id: 'step-scan',    detail: 'detail-scan',   threshold: 5,  defaultDetail: 'Scanning clips'         },
+      { id: 'step-detect',  detail: 'detail-detect', threshold: 20, defaultDetail: 'Analyzing & transcribing' },
+      { id: 'step-story',   detail: 'detail-story',  threshold: 65, defaultDetail: 'Crafting the narrative'  },
+      { id: 'step-render',  detail: 'detail-render', threshold: 70, defaultDetail: 'Encoding each chapter'   },
+      { id: 'step-video',   detail: 'detail-video',  threshold: 90, defaultDetail: 'Joining and exporting'   },
     ];
 
     function updateSteps(pct, message) {
@@ -616,6 +591,9 @@
         const nxt = STEPS[i + 1]?.threshold ?? 101;
         if (pct >= nxt) {
           el.className = 'step done';
+          // Reset detail so stale progress messages don't linger on completed steps
+          const detailEl = document.getElementById(s.detail);
+          if (detailEl) detailEl.textContent = s.defaultDetail;
         } else if (pct >= s.threshold) {
           el.className = 'step active';
           activeIdx = i;
@@ -649,9 +627,9 @@
 
         if (data.status === 'done') {
           videoPath    = data.videoPath;
+          srtPath      = data.srtPath || null;
           assembly     = data.assembly;
           pacingParams = data.pacingParams;
-          xmlPath      = data.xmlPath;
           assemblyPath = data.assemblyPath || null;
           showDone(data);
         } else if (data.status === 'no_aroll') {
@@ -672,6 +650,7 @@
     function showDone(data) {
       document.getElementById('processing-state').style.display = 'none';
       document.getElementById('done-area').classList.add('visible');
+      if (typeof playDoneSound === 'function') playDoneSound();
 
       // Bloom the corner light and brighten eyebrow/meta text as it peaks
       if (typeof window.celebrateOrb === 'function') {
@@ -708,6 +687,11 @@
       if (data.videoPath) {
         const dir = data.videoPath.replace(/\/[^/]+$/, '');
         document.getElementById('done-location-path').textContent = dir;
+      }
+
+      // Show SRT button if a caption sidecar was written
+      if (data.srtPath) {
+        document.getElementById('btn-srt').style.display = 'flex';
       }
 
       const s = data.stats || {};
@@ -766,19 +750,29 @@
       }
     }
 
-    function makeHighlightReel()      { startNewJob({ highlightOnly: true }); }
-    function retryHighSensitivity()   { startNewJob({ highSensitivity: true }); }
 
     function dismissHlgTip() {
       document.getElementById('hlg-tip').classList.remove('visible');
       localStorage.setItem('hlgTipDismissed', '1');
     }
 
-    function exportXML() {
-      if (xmlPath) window.electronAPI.showInFinder(xmlPath);
+    async function exportXML() {
+      try {
+        const res  = await fetch('/api/export/fcpxml/job', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jobId }),
+        });
+        const data = await res.json();
+        if (data.ok && data.filePath) window.electronAPI.showInFinder(data.filePath);
+        else alert('XML export failed: ' + (data.error || 'unknown error'));
+      } catch (err) {
+        alert('XML export failed: ' + err.message);
+      }
     }
 
     function openVideo() { if (videoPath) window.electronAPI.openPath(videoPath); }
+    function openSrt()   { if (srtPath)   window.electronAPI.openPath(srtPath); }
 
     function startNew()  { sessionStorage.removeItem('journalJobId'); window.location.href = '/'; }
 
@@ -805,19 +799,10 @@
     }
 
     function revealInFinder() {
-      if (videoPath) window.electronAPI.openPath(videoPath.replace(/\/[^/]+$/, ''));
+      if (videoPath) window.electronAPI.showInFinder(videoPath);
     }
 
-    async function changeOutputFolder() {
-      const folder = await window.electronAPI.selectFolder();
-      if (!folder) return;
-      await fetch('/api/settings', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ outputFolder: folder }),
-      });
-      document.getElementById('done-location-path').textContent =
-        'Saved here next time: ' + folder;
-    }
+
 
     document.addEventListener('DOMContentLoaded', () => { startOrbs(); poll(); });
   </script>

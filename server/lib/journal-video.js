@@ -53,6 +53,29 @@ function detectOutputResolution(probed) {
 const FACE_DUR_DEFAULT  = 4;    // seconds of face cam before cutting to b-roll
 const BROLL_CUT_DEFAULT = 7;    // seconds per b-roll cutaway during narration
 
+// ── Rotation parsing ─────────────────────────────────────────────────────────
+// Pure function: takes raw ffmpeg stderr output and returns { rotation, rotFromTag }.
+// rotation: degrees CW to apply (0/90/180/270). rotFromTag: true = rotate tag, false = display matrix.
+//
+// rotate tag  : "rotate : 90"  → device rotated 90° CW → apply same angle CW → transpose=1
+// display matrix: "rotation of -90 degrees" → player applies CCW 90° to stored pixels →
+//                  bake in the same angle directly (no negation): (-90+360)%360=270 → transpose=2
+function parseRotation(ffmpegOutput) {
+  const tagRot = ffmpegOutput.match(/rotate\s*:\s*(-?\d+)/);
+  const matRot = ffmpegOutput.match(/rotation of\s*(-?[\d.]+)\s*degrees/i);
+  let rotation = 0;
+  let rotFromTag = false;
+  if (tagRot) {
+    rotation   = ((parseInt(tagRot[1], 10) + 360) % 360);
+    rotFromTag = true;
+  } else if (matRot) {
+    rotation   = ((parseFloat(matRot[1]) + 360) % 360);
+    rotFromTag = false;
+  }
+  rotation = Math.round(rotation / 90) * 90 % 360;
+  return { rotation, rotFromTag };
+}
+
 // ── Probe ────────────────────────────────────────────────────────────────────
 
 async function probe(filePath) {
@@ -72,32 +95,7 @@ async function probe(filePath) {
     const storedW = dimM ? parseInt(dimM[1], 10) : 0;
     const storedH = dimM ? parseInt(dimM[2], 10) : 0;
 
-    // Rotation metadata — two sources:
-    //   rotate tag  : "rotate : 90"  → device was rotated 90° CW from native landscape
-    //                  apply same angle CW to correct → transpose=1
-    //   display matrix: "rotation of -90 degrees" → ffmpeg reports the angle the
-    //                  player applies to stored pixels to show them upright.
-    //                  We bake that same angle into the filter (do NOT negate).
-    //                  e.g. -90° → CCW 90° (stored as 270°) → transpose=2
-    //                       -180° → 180° flip
-    // Only narration (face-cam) clips use this correction — b-roll clips are
-    // already landscape-correct in their stored pixels regardless of metadata.
-    const tagRot = out.match(/rotate\s*:\s*(-?\d+)/);
-    const matRot = out.match(/rotation of\s*(-?[\d.]+)\s*degrees/i);
-    let rotation = 0;
-    let rotFromTag = false; // true = came from 'rotate' metadata tag; false = display matrix only
-    if (tagRot) {
-      // 'rotate' tag: stored pixels need this many degrees CW to display correctly.
-      rotation   = ((parseInt(tagRot[1], 10) + 360) % 360);
-      rotFromTag = true;
-    } else if (matRot) {
-      // Display matrix: ffmpeg reports the angle the PLAYER applies to stored pixels.
-      // To bake that correction into the filter we negate: -90° display → apply CW 90°.
-      rotation   = ((-parseFloat(matRot[1]) + 360) % 360);
-      rotFromTag = false;
-    }
-    // Snap to nearest 90° — fractional values are metadata noise
-    rotation = Math.round(rotation / 90) * 90 % 360;
+    const { rotation, rotFromTag } = parseRotation(out);
 
     // Creation time — use macOS Spotlight (most accurate for iPhone clips)
     let creationTime = null;
@@ -139,8 +137,7 @@ async function probe(filePath) {
     const needsColorConversion = ['arib-std-b67', 'smpte2084', 'smpte428'].includes(trc);
 
     if (rotation !== 0) {
-      const src = path.basename(filePath);
-      console.log(`[probe] ${src}: stored=${storedW}x${storedH} rotation=${rotation}° (tag=${tagRot?.[1] ?? 'none'} matrix=${matRot?.[1] ?? 'none'})`);
+      console.log(`[probe] ${path.basename(filePath)}: stored=${storedW}x${storedH} rotation=${rotation}° rotFromTag=${rotFromTag}`);
     }
 
     return { rotation, rotFromTag, storedW, storedH, hasAudio, duration, creationTime, needsColorConversion, trc, sourceFps, isSloMo, isTimeLapse };
@@ -152,7 +149,10 @@ async function probe(filePath) {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 // Low-level: rotation angle → ffmpeg filter fragment (leading comma, or empty).
-// Always pair with -noautorotate on the input — filter_complex never auto-rotates.
+// Pair with -noautorotate on the input for rotate-TAG clips and a-roll.
+// Display-matrix b-roll clips intentionally omit -noautorotate so ffmpeg
+// applies the display matrix natively (same as any video player), avoiding
+// direction errors from our manual rotation formula.
 function rotFrag(rotation) {
   if (rotation === 270) return ',transpose=2';  // CCW 90°
   if (rotation === 90)  return ',transpose=1';  // CW 90°
@@ -162,42 +162,59 @@ function rotFrag(rotation) {
 
 // High-level: returns the rotation filter fragment for a clip.
 //
-// Probe rotation (info.rotation) is ALWAYS applied as the baseline — it
-// comes directly from file metadata (rotate tag or display matrix) and is
-// the authoritative source for how stored pixels relate to upright display.
-// The original rule of "skip display-matrix rotation for faceless b-roll"
-// was wrong: it assumed b-roll is always landscape-correct, but portrait
-// iPhone b-roll needs the same correction as any other clip.
-//
-// Vision (suggestedRotation) can override the probe ONLY when it is
-// confident: when a face is visible (orientation is unambiguous) or when
-// Vision reports 180° (upside-down is never intentional). For rotate-TAG
-// clips, Vision is never used — preferredTransform is often identity for
-// cameras that store rotation only in the tag, and Vision would under-rotate.
+// Simple rule: Vision is the authority for all display-matrix clips.
+// Vision receives raw (unrotated) frames and reports the TOTAL clockwise
+// rotation needed. If Vision has no opinion, default is no rotation.
+// Rotate-TAG clips are always trusted directly — the tag value is reliable
+// and Vision may under-rotate cameras that store rotation only in the tag.
 function clipRotFrag(info, clipType, suggestedRotation, hasFace, src) {
   const tag = require('path').basename(src || '');
 
   if (clipType === 'aroll') {
-    // A-roll: prefer Vision (face orientation is unambiguous), fall back to probe
-    const rot = suggestedRotation ?? info.rotation;
-    VERBOSE && console.log(`[rot] ${tag}: aroll → ${suggestedRotation != null ? 'Vision' : 'metadata'} ${rot}°`);
+    // A-roll: Vision is authoritative (face orientation unambiguous), fall back to tag metadata
+    const rot = suggestedRotation ?? (info.rotFromTag ? info.rotation : 0);
+    console.log(`[rot] ${tag}: aroll → ${suggestedRotation != null ? 'Vision' : info.rotFromTag ? 'tag' : 'none'} ${rot}°`);
     return rotFrag(rot);
   }
 
-  // B-roll: probe rotation is the baseline for ALL clips.
-  // Rotate-TAG clips: ignore Vision entirely — preferredTransform may be identity.
+  // Rotate-TAG clips: tag is always authoritative — never use Vision
   if (info.rotFromTag) {
-    VERBOSE && console.log(`[rot] ${tag}: broll/tag → metadata ${info.rotation}° (tag authoritative)`);
+    VERBOSE && console.log(`[rot] ${tag}: broll/tag → ${info.rotation}° (tag authoritative)`);
     return rotFrag(info.rotation);
   }
-  // Display-matrix clips: Vision overrides probe only when confident.
-  if (suggestedRotation != null && (hasFace || suggestedRotation === 180)) {
-    VERBOSE && console.log(`[rot] ${tag}: broll/matrix → Vision ${suggestedRotation}° (hasFace=${hasFace})`);
+
+  // Display-matrix clips: Vision decides from raw pixels. No Vision = no rotation.
+  if (suggestedRotation != null) {
+    console.log(`[rot] ${tag}: broll/matrix → Vision ${suggestedRotation}°`);
     return rotFrag(suggestedRotation);
   }
-  // No confident Vision data — apply probe display-matrix rotation.
-  VERBOSE && console.log(`[rot] ${tag}: broll/matrix → metadata ${info.rotation}°`);
-  return rotFrag(info.rotation);
+  console.log(`[rot] ${tag}: broll/matrix → Vision=null, keep as-is`);
+  return '';
+}
+
+// Compute the best trim-start for a b-roll cutaway of brDur seconds.
+// Uses Vision's bestFrame (chosen from 6-12 frames across the clip) as the seek
+// centre. frameProportions stores the exact sample positions so the mapping is
+// precise. Falls back to transcript trimStart / fixed offset.
+function brollSeekStart(clip, brDur) {
+  const dur = clip.duration || 10;
+  let center = null;
+  if (clip.vision?.bestFrame != null) {
+    const props = clip.vision.frameProportions;
+    if (props && props[clip.vision.bestFrame] != null) {
+      center = props[clip.vision.bestFrame] * dur;
+    } else {
+      // Fallback: recalculate proportions using same formula as seekProportions()
+      const n = dur < 60 ? 6 : dur < 180 ? 8 : dur < 480 ? 10 : 12;
+      center = ((clip.vision.bestFrame + 1) / (n + 1)) * dur;
+    }
+  }
+  const floor = clip.stableStart ?? 0;
+  if (center != null) {
+    const start = center - brDur / 2;
+    return Math.min(Math.max(floor, start), Math.max(floor, dur - brDur - 0.5));
+  }
+  return clip.transcript?.trimStart ?? Math.max(floor, Math.max(1.0, dur * 0.15));
 }
 
 // Blurred-background + centred letterbox/pillarbox.
@@ -591,15 +608,14 @@ async function buildJournalVideo(assembly, outPath, onProgress, musicOpts, pacin
 function clipIsLandscapeForVertical(info, suggestedRotation, clipType, hasFace = false) {
   const { storedW = 0, storedH = 0, rotation = 0, rotFromTag = false } = info;
 
+  // Mirror clipRotFrag exactly so blur-bar decisions match the actual ffmpeg filter applied.
   let effectiveRot;
   if (clipType === 'aroll') {
-    effectiveRot = suggestedRotation ?? rotation;
+    effectiveRot = suggestedRotation ?? (rotFromTag ? rotation : 0);
   } else if (rotFromTag) {
     effectiveRot = rotation;                              // tag always authoritative
-  } else if (suggestedRotation != null && (hasFace || suggestedRotation === 180)) {
-    effectiveRot = suggestedRotation;                     // Vision confident
   } else {
-    effectiveRot = rotation;                              // probe display-matrix
+    effectiveRot = suggestedRotation ?? 0;               // display-matrix: Vision or no rotation
   }
 
   const displayW = (effectiveRot === 90 || effectiveRot === 270) ? storedH : storedW;
@@ -612,16 +628,16 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
   const brollClips = assembly.filter(c => c.clipType === 'broll');
 
   // Vision-supplied rotation per clip path — used in clipRotFrag as ground truth.
-  // For broll with display matrix only: trust Vision rotation only if a person is
-  // visible (orientation is unambiguous). Object-only content (cameras, tables, etc.)
-  // can look correct upside-down so we skip rotation for those.
   const rotByPath = new Map();
   const faceByPath = new Map();
   for (const clip of assembly) {
     const hasFace = !!(clip.vision?.hasFace || clip.vision?.isTalkingHead ||
                        clip.vision?.contentTags?.includes('people'));
     faceByPath.set(clip.path, hasFace);
-    const rot = clip.vision?.suggestedRotation ?? clip.suggestedRotation;
+    // Only trust Vision rotation for clips with a visible face — a face provides
+    // unambiguous orientation. Faceless clips (animals, landscapes, objects) are
+    // visually ambiguous and Vision frequently guesses wrong. Keep them as-is.
+    const rot = hasFace ? (clip.vision?.suggestedRotation ?? clip.suggestedRotation) : null;
     if (rot != null) rotByPath.set(clip.path, rot);
   }
 
@@ -634,18 +650,15 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
   //      (preserves "let me show you" → payoff-clip intent)
   //   3. Timestamp proximity (original fallback)
   const sectionMap = arollClips.map(aroll => ({ aroll, brolls: [] }));
-  const lastArollTime = arollClips.length ? (arollClips[arollClips.length - 1].filledAt || 0) : 0;
-
   for (const br of brollClips) {
     if (br.semanticSection !== undefined && br.semanticSection >= 0 && br.semanticSection < sectionMap.length) {
       sectionMap[br.semanticSection].brolls.push(br);
       continue;
     }
+    // Nearest-aroll timestamp matching. filledAt can be corrupted by AirDrop but
+    // is still the best cross-camera signal available (filename numbers are not
+    // comparable across cameras — GoPro GH010001=1 vs iPhone IMG_5144=5144).
     const brTime = br.filledAt || 0;
-    if (brTime > lastArollTime && arollClips.length > 0) {
-      sectionMap[sectionMap.length - 1].brolls.push(br);
-      continue;
-    }
     let bestIdx = 0, bestDist = Infinity;
     for (let i = 0; i < arollClips.length; i++) {
       const dist = Math.abs((arollClips[i].filledAt || 0) - brTime);
@@ -676,7 +689,12 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
   for (let i = 0; i < bridges.length; i++) {
     const curr = sectionMap[i];
     const next = sectionMap[i + 1];
-    if (next.brolls.length > 1) {
+    if (curr.brolls.length === 1 && next.brolls.length > 0) {
+      // curr has exactly one clip — use it as a farewell bridge rather than as the
+      // section's sole interleaved cutaway. A standalone clip between sections reads
+      // better than the same clip overlapping narration audio.
+      bridges[i] = curr.brolls.pop();
+    } else if (next.brolls.length > 1) {
       bridges[i] = next.brolls.shift();     // preview clip: shows where we're going
     } else if (curr.brolls.length > 1) {
       bridges[i] = curr.brolls.pop();        // farewell clip: shows where we were
@@ -695,34 +713,23 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
   // windowed clips may only use 10s of a 36s source and allocating slots for
   // 36s produces far too many cutaway slots, crowding out the bridge mechanism.
   const slotsPerAroll = arollClips.map(c => {
-    const dur = (c.trimEnd ?? c.duration || 0) - (c.trimStart ?? 0);
+    const dur = (c.trimEnd ?? (c.duration || 0)) - (c.trimStart ?? 0);
     return Math.max(1, Math.floor(Math.max(0, dur - FACE_DUR) / (FACE_DUR + BROLL_CUT)) + 1);
   });
 
   // ── Quality scoring: abundance mode ──────────────────────────────────────
-  // If any section has far more b-roll than it needs, score clips and keep
-  // the best ones. Timestamp order is always preserved after filtering.
-  // Threshold: a section must have > 2× its slot count to trigger scoring.
-  const needsScoring = sectionMap.some((sec, i) => sec.brolls.length > slotsPerAroll[i] * 2);
-  if (needsScoring) {
-    // Use brollScore already set by clip-vision pass in the pipeline
-    for (let i = 0; i < sectionMap.length; i++) {
-      const sec   = sectionMap[i];
-      const limit = slotsPerAroll[i] * 2;
-      if (sec.brolls.length > limit) {
-        const ranked = [...sec.brolls].sort((a, b) =>
-          (b.brollScore ?? 50) - (a.brollScore ?? 50)
-        );
-        const topPaths = new Set(ranked.slice(0, limit).map(c => c.path));
-        sec.brolls = sec.brolls.filter(c => topPaths.has(c.path));
-      }
-    }
-  }
-
-  // Apply overflow cap
+  // When a section has far more b-roll than cutaway slots, rank by quality
+  // and keep the best so the weakest shots don't crowd out good ones. Threshold: > 4× slots.
   for (let i = 0; i < sectionMap.length; i++) {
-    const maxTotal = slotsPerAroll[i] * 2;
-    sectionMap[i].brolls = sectionMap[i].brolls.slice(0, maxTotal);
+    const sec   = sectionMap[i];
+    const limit = slotsPerAroll[i] * 4; // generous — allow lots of overflow b-roll
+    if (sec.brolls.length > limit) {
+      const ranked = [...sec.brolls].sort((a, b) =>
+        (b.brollScore ?? 50) - (a.brollScore ?? 50)
+      );
+      const topPaths = new Set(ranked.slice(0, limit).map(c => c.path));
+      sec.brolls = sec.brolls.filter(c => topPaths.has(c.path));
+    }
   }
 
   if (VERBOSE) {
@@ -750,7 +757,9 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
     const overflow  = brolls.slice(slotsPerAroll[i]);
     const narrInfo  = infoByPath.get(aroll.path);
 
-    // Use Whisper trim bounds if available — removes dead air at start/end of narration
+    // Use Whisper trim bounds if available — removes dead air at start/end of narration.
+    // Apply a small fixed visual floor (1.0s) to catch camera fumble before speech,
+    // but cap it so we never skip real narration content.
     const narrTrimStart = aroll.trimStart ?? 0;
     const narrTrimEnd   = Math.min(
       aroll.duration || narrInfo.duration || 30,
@@ -765,7 +774,6 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
     const segs = [];
     let pos = 0;
     const brollQ = [...cutaways];
-    const isFirst = false; // fade-in disabled
 
     // Minimum durations — scale down with pacing so tight mode can fit cuts.
     const MIN_FACE_SEG  = Math.max(0.8, Math.min(1.5, FACE_DUR  * 0.5));
@@ -781,7 +789,6 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
         path: aroll.path,
         startInSrc: narrTrimStart + pos,
         dur: faceDur,
-        fadeIn: isFirst && pos === 0,
       });
       pos = faceEnd;
 
@@ -795,10 +802,11 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
         if (brollAvail >= MIN_BROLL_SEG) {
           const br        = brollQ.shift();
           const brClipDur = infoByPath.get(br.path)?.duration ?? BROLL_CUT;
-          const cutEnd    = Math.min(pos + BROLL_CUT, brollMax, pos + brClipDur);
+          const brStart   = Math.min(1.0, brClipDur * 0.15); // skip camera settling at clip start
+          const cutEnd    = Math.min(pos + BROLL_CUT, brollMax, pos + (brClipDur - brStart));
 
           if (cutEnd - pos >= MIN_BROLL_SEG) {
-            segs.push({ clip: br, path: br.path, startInSrc: 0, dur: cutEnd - pos, fadeIn: false });
+            segs.push({ clip: br, path: br.path, startInSrc: brStart, dur: cutEnd - pos });
             pos = cutEnd;
           } else {
             brollQ.unshift(br); // too short — put back, skip this iteration
@@ -836,8 +844,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
       const segType = seg.path === aroll.path ? 'aroll' : 'broll';
       const rot     = clipRotFrag(info, segType, rotByPath.get(seg.path), faceByPath.get(seg.path), seg.path);
       const end     = (seg.startInSrc + seg.dur).toFixed(3);
-      const fadeFilter = seg.fadeIn ? ',fade=t=in:st=0:d=0.5' : '';
-      fp.push(`[${idx}:v]trim=start=${seg.startInSrc.toFixed(3)}:end=${end},setpts=PTS-STARTPTS${rot}${fadeFilter}[sv${s}]`);
+      fp.push(`[${idx}:v]trim=start=${seg.startInSrc.toFixed(3)}:end=${end},setpts=PTS-STARTPTS${rot}[sv${s}]`);
       fp.push(bgFilter(`[sv${s}]`, `[svout${s}]`, `sg${i}_${s}`, info.trc, outW, outH, isVertical && clipIsLandscapeForVertical(info, rotByPath.get(seg.path), segType, faceByPath.get(seg.path))));
     }
     fp.push(`${segs.map((_, s) => `[svout${s}]`).join('')}concat=n=${segs.length}:v=1:a=0,fps=30,trim=end=${narrDur.toFixed(3)},setpts=PTS-STARTPTS[secv]`);
@@ -871,14 +878,16 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
       const br     = overflow[j];
       const brInfo = infoByPath.get(br.path);
       if (!brInfo || brInfo.duration < 0.5) continue;
-      const brDur = Math.min(BROLL_CUT, brInfo.duration || BROLL_CUT);
+      const brDur   = Math.min(BROLL_CUT, brInfo.duration || BROLL_CUT);
+      const brStart = brollSeekStart(br, brDur);
+      const brEnd   = Math.min(brStart + brDur, brInfo.duration || brDur);
 
       const brFp = [
-        `[0:v]trim=0:${brDur.toFixed(3)},setpts=PTS-STARTPTS${clipRotFrag(brInfo, 'broll', rotByPath.get(br.path), faceByPath.get(br.path), br.path)}[brv]`,
+        `[0:v]trim=${brStart.toFixed(3)}:${brEnd.toFixed(3)},setpts=PTS-STARTPTS${clipRotFrag(brInfo, 'broll', rotByPath.get(br.path), faceByPath.get(br.path), br.path)}[brv]`,
         bgFilter('[brv]', '[brout]', `brovf${i}_${j}`, brInfo.trc, outW, outH, isVertical && clipIsLandscapeForVertical(brInfo, rotByPath.get(br.path), 'broll', faceByPath.get(br.path))),
         brInfo.hasAudio
-          ? `[0:a]atrim=0:${brDur.toFixed(3)},volume=0.12,asetpts=PTS-STARTPTS[bra]`
-          : `aevalsrc=0:c=stereo:s=48000:d=${brDur.toFixed(3)}[bra]`,
+          ? `[0:a]atrim=${brStart.toFixed(3)}:${brEnd.toFixed(3)},volume=0.12,asetpts=PTS-STARTPTS[bra]`
+          : `aevalsrc=0:c=stereo:s=48000:d=${(brEnd - brStart).toFixed(3)}[bra]`,
       ];
 
       const brFile = path.join(tmpDir, `sec${i}_ovf${j}.mp4`);
@@ -984,12 +993,14 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
         const br     = bridges[i];
         const brInfo = infoByPath.get(br.path);
         if (brInfo && brInfo.duration >= 0.5) {
-          const brDur  = Math.min(BROLL_CUT, brInfo.duration || BROLL_CUT);
+          const brDur   = Math.min(BROLL_CUT, brInfo.duration || BROLL_CUT);
+          const brStart = brollSeekStart(br, brDur);
+          const brEnd   = Math.min(brStart + brDur, brInfo.duration || brDur);
           const brFp   = [
-            `[0:v]trim=0:${brDur.toFixed(3)},setpts=PTS-STARTPTS${clipRotFrag(brInfo, 'broll', rotByPath.get(br.path), faceByPath.get(br.path), br.path)}[brv]`,
+            `[0:v]trim=${brStart.toFixed(3)}:${brEnd.toFixed(3)},setpts=PTS-STARTPTS${clipRotFrag(brInfo, 'broll', rotByPath.get(br.path), faceByPath.get(br.path), br.path)}[brv]`,
             bgFilter('[brv]', '[brout]', `bridge${i}`, brInfo.trc, outW, outH, isVertical && clipIsLandscapeForVertical(brInfo, rotByPath.get(br.path), 'broll', faceByPath.get(br.path))),
             brInfo.hasAudio
-              ? `[0:a]atrim=0:${brDur.toFixed(3)},volume=0.12,asetpts=PTS-STARTPTS[bra]`
+              ? `[0:a]atrim=${brStart.toFixed(3)}:${brEnd.toFixed(3)},volume=0.12,asetpts=PTS-STARTPTS[bra]`
               : `aevalsrc=0:c=stereo:s=48000:d=${brDur.toFixed(3)}[bra]`,
           ];
           const bridgeFile = path.join(tmpDir, `bridge${i}.mp4`);
@@ -1003,7 +1014,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
             sectionFiles.push({ file: bridgeFile, dur: brDur, isAroll: false });
             resolvedTimeline.push({
               clip: slimClip(br), clipType: 'broll',
-              srcIn: 0, srcOut: brDur, dur: brDur, timelineSec: timeOffset,
+              srcIn: brStart, srcOut: brEnd, dur: brDur, timelineSec: timeOffset,
             });
             timeOffset += brDur;
             console.log(`[bridge] section ${i}→${i+1}: ${path.basename(br.path)} (${brDur.toFixed(1)}s)`);
@@ -1034,8 +1045,17 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
     // ── Captions: write ASS (burn-in) + SRT (sidecar) ────────────────────
     let tmpAssPath = null;
     let subFilter  = null;
+    let srtPath    = null;
     if (captionsOpts?.enabled && captionSections.length > 0) {
       const srtContent = generateSrt(captionSections);
+      // Always write a clean SRT sidecar alongside the output video.
+      if (srtContent.trim()) {
+        srtPath = outPath.replace(/\.mp4$/i, '.srt');
+        try { fs.writeFileSync(srtPath, srtContent, 'utf8'); } catch (e) {
+          console.warn('[captions] srt sidecar write failed:', e.message);
+          srtPath = null;
+        }
+      }
       // SRT burn-in — pick style, apply uppercase if needed, point ffmpeg to bundled fonts
       if (srtContent.trim()) {
         const styleDef  = CAPTION_STYLES[captionsOpts.style] || CAPTION_STYLES.clean;
@@ -1104,7 +1124,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
     }
 
     onProgress?.(95);
-    return { resolvedTimeline };
+    return { resolvedTimeline, srtPath };
   } finally {
     // Clean up all temp files — always, even on error.
     // Walk sectionResults (not the inner sectionFiles which is out of scope here).
@@ -1115,7 +1135,7 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
         try { fs.unlinkSync(ovf.file); } catch {}
       }
     }
-    try { fs.rmdirSync(tmpDir); } catch {}
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   }
 }
 
@@ -1207,6 +1227,7 @@ async function buildSequential(assembly, outPath, onProgress, musicOpts, BROLL_C
   onProgress?.(30);
   await execFileAsync(ffmpegPath, args, { maxBuffer: 500 * 1024 * 1024, timeout: 600000 });
   onProgress?.(95);
+  return { resolvedTimeline: null, srtPath: null };
 }
 
-module.exports = { buildJournalVideo, probe };
+module.exports = { buildJournalVideo, probe, parseRotation, clipRotFrag, rotFrag };

@@ -23,17 +23,33 @@ app.use('/fonts', express.static(path.join(__dirname, '../assets/fonts')));
 app.get('/',          (_, res) => res.sendFile(path.join(__dirname, '../ui/home.html')));
 app.get('/configure', (_, res) => res.sendFile(path.join(__dirname, '../ui/configure.html')));
 app.get('/journal',   (_, res) => res.sendFile(path.join(__dirname, '../ui/journal.html')));
-app.get('/trip',      (_, res) => res.sendFile(path.join(__dirname, '../ui/trip.html')));
-app.get('/journals',  (_, res) => res.sendFile(path.join(__dirname, '../ui/journals.html')));
-app.get('/recap',     (_, res) => res.sendFile(path.join(__dirname, '../ui/recap.html')));
 
 // API
 app.use('/api', api);
+
+function checkWhisper() {
+  try {
+    const { getWhisperBin, getModelPath } = require('./lib/whisper');
+    const fs = require('fs');
+    const binPath   = getWhisperBin();
+    const modelPath = getModelPath();
+    const binOk   = fs.existsSync(binPath);
+    const modelOk = fs.existsSync(modelPath);
+    console.log(`[startup] whisper-cli: ${binOk ? 'OK' : 'MISSING'} ${binPath}`);
+    console.log(`[startup] whisper model: ${modelOk ? 'OK' : 'MISSING'} ${modelPath}`);
+    if (!binOk || !modelOk) {
+      console.error('[startup] WARNING: Whisper binary or model missing — narration detection will not work');
+    }
+  } catch (e) {
+    console.error('[startup] Whisper check failed:', e.message);
+  }
+}
 
 function start() {
   return new Promise((resolve, reject) => {
     const server = app.listen(PORT, '127.0.0.1', () => {
       analytics.track('app_opened');
+      checkWhisper();
       resolve(PORT);
     });
     server.on('error', reject);

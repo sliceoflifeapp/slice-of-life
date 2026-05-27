@@ -21,9 +21,10 @@ function getWhisperBin() {
 function getModelPath() {
   const base   = whisperBase();
   const models = path.join(base, 'cpp', 'whisper.cpp', 'models');
-  // tiny.en is ~5× faster than base.en with ~95% accuracy — better for realtime use
-  const preferred = path.join(models, 'ggml-tiny.en.bin');
-  const fallback  = path.join(models, 'ggml-base.en.bin');
+  // base.en gives significantly better segment timing accuracy (used for trimStart)
+  // and more reliable transcripts. Falls back to tiny.en if base isn't present.
+  const preferred = path.join(models, 'ggml-base.en.bin');
+  const fallback  = path.join(models, 'ggml-tiny.en.bin');
   return fs.existsSync(preferred) ? preferred : fallback;
 }
 
@@ -40,6 +41,7 @@ function getClient() {
   _anthropicClient = new Anthropic({ apiKey: key });
   return _anthropicClient;
 }
+function resetClient() { _anthropicClient = null; }
 
 // Extract 16kHz mono WAV from a video file (what Whisper requires)
 async function extractAudio(videoPath, outWav) {
@@ -50,32 +52,34 @@ async function extractAudio(videoPath, outWav) {
     '-ar', '16000', '-ac', '1',
     '-c:a', 'pcm_s16le',
     '-y', outWav,
-  ], { maxBuffer: 200 * 1024 * 1024, timeout: 60000 });
+  ], { maxBuffer: 200 * 1024 * 1024, timeout: 120000 });
 }
 
-// Semantic match between transcript and description using Claude.
-// Returns a score 0–1. Synonyms, paraphrases, and related concepts all count.
-async function descriptionMatch(transcriptText, description) {
-  if (!description || !transcriptText) return null;
+// Ask Claude whether a transcript represents intentional narration to camera,
+// vs ambient/background speech. Returns true/false; falls back to wps >= 1.5.
+async function isIntentionalNarration(text, wordsPerSec) {
+  const client = getClient();
+  if (!client) return wordsPerSec >= 1.5;
   try {
-    const client = getClient();
-    if (!client) return null;
-
     const msg = await client.messages.create({
-      model: 'claude-haiku-4-5',
-      max_tokens: 5,
+      model:     'claude-haiku-4-5-20251001',
+      max_tokens: 3,
       messages: [{
         role: 'user',
-        content: `Day description: "${description}"\n\nTranscript: "${transcriptText.slice(0, 300)}"\n\nDoes the transcript relate to the day description? Synonyms and paraphrases count. Reply with a number 0-10 only.`,
+        content:
+          `Transcript: "${text.slice(0, 400)}"\n\n` +
+          `Is this person intentionally narrating or journaling to camera — ` +
+          `talking about what they're doing, where they are, or what happened? ` +
+          `Or is this ambient/background speech not directed at the camera? ` +
+          `Answer yes or no.`,
       }],
     });
-
-    const score = parseFloat(msg.content[0].text.trim()) / 10;
-    return isNaN(score) ? null : Math.min(1, Math.max(0, score));
+    return msg.content[0].text.trim().toLowerCase().startsWith('y');
   } catch {
-    return null;
+    return wordsPerSec >= 1.5; // fallback on any error
   }
 }
+
 
 // Find the contiguous window of `maxDuration` seconds with the highest word
 // density. Used to cap long narration clips to their most talkative section.
@@ -122,8 +126,8 @@ function findNaturalCutEnd(timed, targetEnd, maxGrace = 2.0) {
 // NOTE: the old version scanned up to 1s ahead for a capital letter (Whisper
 // capitalises nearly every segment), which caused it to skip the actual start
 // of the desired content — making clips sound like they start mid-sentence.
-// Removed that scan: findDenseWindow already starts at segment boundaries, and
-// findBestWindow picks a semantically good start; no additional snapping needed.
+// Removed that scan: findDenseWindow already starts at segment boundaries so
+// no additional snapping is needed.
 function findNaturalCutStart(timed, targetStart) {
   // Snap forward if we land inside an existing segment to avoid mid-word starts.
   const midSeg = timed.find(s => s.start < targetStart - 0.05 && s.end > targetStart + 0.1);
@@ -166,13 +170,22 @@ function findDenseWindow(segments, maxDuration) {
 
 // Transcribe a video file. Returns { text, segments, wordCount, isTalkingHead }
 // clipDurationSec: actual clip duration from probe — used for wps calculation
-// description: optional day description from configure screen
-async function transcribe(videoPath, clipDurationSec, description) {
+async function transcribe(videoPath, clipDurationSec, debugLog) {
   const tmpWav = path.join(os.tmpdir(), `yl-${Date.now()}.wav`);
   const outBase = tmpWav.replace('.wav', '');
 
   try {
     await extractAudio(videoPath, tmpWav);
+
+    // Log WAV size to catch failed/partial audio extractions
+    let wavBytes = 0;
+    try { wavBytes = fs.statSync(tmpWav).size; } catch {}
+    const expectedMin = Math.min(clipDurationSec || 0, 90) * 16000 * 2 * 0.5; // 50% of expected PCM size
+    if (wavBytes < expectedMin) {
+      debugLog?.write(`[whisper] WARNING: WAV too small for ${require('path').basename(videoPath)}: ${wavBytes} bytes (expected ≥ ${Math.round(expectedMin)}). Audio extraction may have failed.`);
+    } else {
+      debugLog?.write(`[whisper] WAV extracted: ${Math.round(wavBytes / 1024)}KB for ${require('path').basename(videoPath)} (${(clipDurationSec || 0).toFixed(1)}s clip)`);
+    }
 
     // Ensure binary is executable and not quarantined (macOS security on distributed builds).
     // Strip quarantine from the whole whisper dir recursively — newer macOS may block
@@ -209,11 +222,15 @@ async function transcribe(videoPath, clipDurationSec, description) {
       const raw = fs.readFileSync(outBase + '.txt', 'utf8');
       // Strip timestamp lines like "[00:00:00.000 --> 00:00:02.500]" that appear
       // when --no-timestamps is absent, then strip whisper annotation tags like
-      // [BLANK_AUDIO], [MUSIC], [NOISE] etc. — these count as "1 word" and
-      // cause long clips (63s+) to be misclassified as b-roll.
+      // [BLANK_AUDIO], [MUSIC], [NOISE] etc.
       text = raw.replace(/\[\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}\]/g, '')
                 .replace(/\[[^\]]*\]/g, '')
                 .replace(/\n{2,}/g, '\n').trim();
+      // Log raw output for any clip where word count looks suspiciously low
+      const rawWordCount = text.split(/\s+/).filter(Boolean).length;
+      if (rawWordCount <= 3 && (clipDurationSec || 0) > 10) {
+        debugLog?.write(`[whisper] LOW WORD COUNT (${rawWordCount}w) for ${require('path').basename(videoPath)} (${(clipDurationSec||0).toFixed(1)}s). Raw .txt output: ${JSON.stringify(raw.slice(0, 500))}`);
+      }
     } catch {}
     try {
       const json = JSON.parse(fs.readFileSync(outBase + '.json', 'utf8'));
@@ -233,24 +250,12 @@ async function transcribe(videoPath, clipDurationSec, description) {
     const clipSec     = (clipDurationSec && clipDurationSec > 0) ? clipDurationSec : 30;
     const wordsPerSec = wordCount / clipSec;
 
-    // Description match boosts confidence — if transcript relates to what the
-    // user said their day was about (synonyms count), lower the wps threshold.
-    const matchScore = await descriptionMatch(text, description);
-    // Only lower the wps threshold if Claude thinks the content is genuinely
-    // related to the description (4/10+). A weak match like 2/10 is noise.
-    const wpsThreshold = (matchScore !== null && matchScore >= 0.4) ? 1.0 : 1.5;
-
-    // Short clips need proportionally more words to confirm intentional narration.
-    // A 5s clip needs at least 12 words; longer clips need 10.
-    const minWords = clipSec < 8 ? Math.round(clipSec * 2.2) : 10;
-
-    // Short clips with no description match are very likely incidental speech
-    // (e.g. someone saying one sentence while doing something else). Require a
-    // minimum match score for clips under 8s when a description was provided.
-    const matchTooLow = description && matchScore !== null && matchScore < 0.25 && clipSec < 8;
-
-    // Must meet word count AND wps threshold AND not flagged by low match.
-    const isTalkingHead = wordCount >= minWords && wordsPerSec >= wpsThreshold && !matchTooLow;
+    // Content-aware narration detection: ask Claude if this is intentional
+    // narration vs ambient speech. Falls back to wps >= 1.5 if no API key.
+    // Minimum 5 words before calling — avoids burning a call on empty clips.
+    const isTalkingHead = wordCount >= 5
+      ? await isIntentionalNarration(text, wordsPerSec)
+      : false;
 
     // Trim bounds — find where speech actually starts and ends.
     // Removes dead air at the beginning (camera fumble before speaking) and
@@ -260,18 +265,13 @@ async function transcribe(videoPath, clipDurationSec, description) {
     let trimEnd   = clipSec;
     const timedSegs = segments.filter(s => s.end > 0);
     if (timedSegs.length > 0) {
-      trimStart = Math.max(0, timedSegs[0].start - 0.3);
+      // 1.0s floor: even when speech starts at t=0 the camera is still physically
+      // settling. This trims the visual fumble without cutting real content.
+      trimStart = Math.max(1.0, timedSegs[0].start - 0.3);
       trimEnd   = Math.min(clipSec, timedSegs[timedSegs.length - 1].end + 0.5);
-      // Only skip trim when there's almost no dead air on either side (< 0.3s).
-      // The old 1s threshold left up to 0.9s of silence at the clip start with
-      // captions already visible — lowering it keeps caption timing tight.
-      if (trimStart < 0.3 && trimEnd > clipSec - 0.3) {
-        trimStart = 0;
-        trimEnd   = clipSec;
-      }
     }
 
-    console.log(`[whisper] ${require('path').basename(videoPath)}: ${wordCount}w ${wordsPerSec.toFixed(2)}wps match=${matchScore?.toFixed(2)??'n/a'} threshold=${wpsThreshold} trim=[${trimStart.toFixed(1)}s–${trimEnd.toFixed(1)}s] → ${isTalkingHead?'AROLL':'BROLL'}`);
+    console.log(`[whisper] ${require('path').basename(videoPath)}: ${wordCount}w ${wordsPerSec.toFixed(2)}wps trim=[${trimStart.toFixed(1)}s–${trimEnd.toFixed(1)}s] → ${isTalkingHead?'AROLL':'BROLL'}`);
 
     return { text, segments, wordCount, wordsPerSec: +wordsPerSec.toFixed(2), isTalkingHead, trimStart, trimEnd };
   } catch (err) {
@@ -284,44 +284,4 @@ async function transcribe(videoPath, clipDurationSec, description) {
   }
 }
 
-// Pick the best window of maxDuration seconds from a transcript.
-// If a description is provided and the API key is available, asks Claude Haiku
-// to find the excerpt that best matches what the day was about.
-// Falls back to word-density heuristic if no description, no key, or API error.
-async function findBestWindow(segments, maxDuration, description) {
-  const timed = segments.filter(s => s.end > 0);
-
-  if (!description || !timed.length) return findDenseWindow(segments, maxDuration);
-
-  const client = getClient();
-  if (!client) return findDenseWindow(segments, maxDuration);
-
-  const transcriptText = timed.map(s => `[${s.start.toFixed(1)}s] ${s.text.trim()}`).join('\n');
-
-  try {
-    const msg = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 10,
-      messages: [{
-        role: 'user',
-        content: `Day description: "${description}"\n\nNarration transcript with timestamps:\n${transcriptText}\n\nChoose the best ${Math.round(maxDuration)}-second excerpt that best matches the day description. Reply with only the start time in seconds as a single number (e.g. "12.5").`,
-      }],
-    });
-
-    const start = parseFloat(msg.content[0].text.trim());
-    if (isNaN(start) || start < 0) return findDenseWindow(segments, maxDuration);
-
-    const lastEnd     = timed[timed.length - 1].end;
-    const rawStart    = Math.max(0, start - 0.3);
-    const rawEnd      = Math.min(rawStart + maxDuration, lastEnd + 0.5);
-    const windowStart = findNaturalCutStart(timed, rawStart);
-    const windowEnd   = findNaturalCutEnd(timed, rawEnd);
-    console.log(`[whisper] findBestWindow: Claude picked start=${start.toFixed(1)}s → [${windowStart.toFixed(1)}s–${windowEnd.toFixed(1)}s]`);
-    return { windowStart, windowEnd };
-  } catch (err) {
-    console.warn(`[whisper] findBestWindow API error, falling back to density: ${err.message}`);
-    return findDenseWindow(segments, maxDuration);
-  }
-}
-
-module.exports = { transcribe, findDenseWindow, findBestWindow, getClient, getWhisperBin, getModelPath, whisperBase };
+module.exports = { transcribe, findDenseWindow, getClient, resetClient, getWhisperBin, getModelPath, whisperBase };
