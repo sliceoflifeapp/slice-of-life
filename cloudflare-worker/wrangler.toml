@@ -1,0 +1,21 @@
+name = "gather-proxy"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+
+# Current app version — update this and redeploy on each release so the app
+# can notify users that a new version is available.
+[vars]
+CURRENT_VERSION = "0.1.33"
+
+# KV namespace for caching license validation results.
+# After `wrangler kv namespace create LICENSE_CACHE`, paste the id below.
+[[kv_namespaces]]
+binding = "LICENSE_CACHE"
+id = "f326a418491f45eb89d2eced6d2c3663"
+
+# Secrets are NOT stored here — set them via CLI:
+#   wrangler secret put ANTHROPIC_API_KEY
+#   wrangler secret put DEV_BYPASS_SECRET
+#
+# Then add DEV_BYPASS_SECRET value to your ~/.zshrc as:
+#   export GATHER_DEV_KEY="<same value>"

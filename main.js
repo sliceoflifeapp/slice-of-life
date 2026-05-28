@@ -57,7 +57,10 @@ function createWindow(port) {
 
   // Show only once the renderer has painted its first frame — eliminates the
   // brown/white flash that occurs when the window appears before CSS loads.
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    setTimeout(() => checkForUpdates(mainWindow), 5000);
+  });
 
   // Grant microphone permission for speech-to-text
   mainWindow.webContents.session.setPermissionCheckHandler((_wc, permission) => {
@@ -114,6 +117,34 @@ ipcMain.handle('shell:openExternal', (_, url) => {
   shell.openExternal(url);
 });
 
+
+function isNewerVersion(remote, current) {
+  const r = remote.replace(/^v/, '').split('.').map(Number);
+  const c = current.replace(/^v/, '').split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((r[i] || 0) > (c[i] || 0)) return true;
+    if ((r[i] || 0) < (c[i] || 0)) return false;
+  }
+  return false;
+}
+
+function checkForUpdates(win) {
+  const https = require('https');
+  const workerUrl = process.env.GATHER_WORKER_URL || 'https://gather-proxy.sliceoflifeapp.workers.dev';
+  const url = `${workerUrl}/version`;
+  https.get(url, res => {
+    let raw = '';
+    res.on('data', chunk => raw += chunk);
+    res.on('end', () => {
+      try {
+        const { version, downloadUrl } = JSON.parse(raw);
+        if (version && isNewerVersion(version, app.getVersion())) {
+          win.webContents.send('update:available', { version, downloadUrl });
+        }
+      } catch {}
+    });
+  }).on('error', () => {});
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

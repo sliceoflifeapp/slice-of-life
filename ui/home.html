@@ -106,6 +106,43 @@
     }
     .drop-zone.loading { opacity: 0.6; pointer-events: none; }
 
+    /* ── Update banner ─────────────────────────────────────────────────────── */
+    #update-banner {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      flex-shrink: 0;
+      padding: 8px 20px;
+      background: rgba(30, 80, 180, 0.18);
+      border-bottom: 1px solid rgba(100, 160, 255, 0.22);
+      font-size: 12px;
+      color: rgba(255,255,255,0.75);
+      -webkit-app-region: no-drag;
+    }
+    #update-banner.visible { display: flex; }
+    #update-banner a {
+      color: #7FB8FF;
+      text-decoration: none;
+      font-weight: 600;
+      transition: color 0.15s;
+    }
+    #update-banner a:hover { color: #A8D4FF; }
+    #update-dismiss {
+      margin-left: auto;
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.3);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 0 2px;
+      line-height: 1;
+      transition: color 0.15s;
+      font-family: inherit;
+    }
+    #update-dismiss:hover { color: rgba(255,255,255,0.6); }
+
     /* ── Micro-stats banner ────────────────────────────────────────────────── */
     .micro-stats {
       display: flex;
@@ -514,6 +551,95 @@
     .social-ig-link:hover { color: #90C4FF; }
 
     /* ── Settings panel ────────────────────────────────────────────────────── */
+    /* ── Top-up modal ──────────────────────────────────────────────────────── */
+    .topup-overlay {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(6px);
+      z-index: 200;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s;
+      display: flex; align-items: center; justify-content: center;
+      -webkit-app-region: no-drag;
+    }
+    .topup-overlay.open { opacity: 1; pointer-events: all; }
+    .topup-card {
+      background: #061422;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 20px;
+      padding: 32px 28px 28px;
+      width: 340px;
+      display: flex; flex-direction: column; gap: 18px;
+    }
+    .topup-header {
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .topup-title {
+      font-size: 13px; font-weight: 700; color: #fff;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .topup-close {
+      background: none; border: none; color: #3A6090; font-size: 18px;
+      cursor: pointer; padding: 4px; line-height: 1;
+      display: flex; align-items: center;
+    }
+    .topup-close:hover { color: #6A9FD4; }
+    .pack-list { display: flex; flex-direction: column; gap: 8px; }
+    .pack-card {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 12px; padding: 14px 16px;
+      display: flex; align-items: center; justify-content: space-between;
+      transition: border-color 0.2s cubic-bezier(0.23,1,0.32,1);
+    }
+    .pack-card:hover { border-color: rgba(127,184,255,0.2); }
+    .pack-left { display: flex; flex-direction: column; gap: 2px; }
+    .pack-amount { font-size: 26px; font-weight: 700; color: #fff; line-height: 1; }
+    .pack-label { font-size: 11px; color: #3A6090; letter-spacing: 0.04em; }
+    .pack-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+    .pack-price { font-size: 13px; color: rgba(255,255,255,0.55); }
+    .pack-buy {
+      background: rgba(50,110,225,0.52);
+      border: 1px solid rgba(120,185,255,0.38);
+      border-radius: 8px; padding: 7px 16px;
+      color: #fff; font-size: 12px; font-weight: 500;
+      font-family: inherit; cursor: pointer; white-space: nowrap;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 0 16px rgba(50,110,225,0.3);
+      transition: all 0.2s cubic-bezier(0.23,1,0.32,1);
+    }
+    .pack-buy:hover { transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 0 24px rgba(50,110,225,0.5); }
+    .pack-buy:active { transform: scale(0.97); }
+    .topup-divider { height: 1px; background: rgba(255,255,255,0.07); }
+    .topup-redeem-label {
+      font-size: 10px; font-weight: 600; color: #7FB8FF;
+      letter-spacing: 0.09em; text-transform: uppercase;
+    }
+    .topup-redeem-row { display: flex; gap: 8px; align-items: center; }
+    .topup-redeem-row .setting-input { flex: 1; font-size: 12px; padding: 9px 12px; }
+    .topup-redeem-btn {
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px; color: #6A9FD4; font-size: 12px;
+      font-family: inherit; padding: 9px 14px; cursor: pointer; white-space: nowrap;
+      transition: background 0.2s cubic-bezier(0.23,1,0.32,1), transform 0.2s cubic-bezier(0.23,1,0.32,1);
+      flex-shrink: 0;
+    }
+    .topup-redeem-btn:hover { background: rgba(255,255,255,0.13); }
+    .topup-redeem-btn:active { transform: scale(0.97); }
+    .topup-redeem-btn:disabled { opacity: 0.5; pointer-events: none; }
+
+    .feedback-textarea {
+      width: 100%; box-sizing: border-box;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px; padding: 10px 12px;
+      font-size: 13px; color: #fff; font-family: inherit;
+      outline: none; resize: none; height: 100px;
+      transition: border-color 0.15s;
+      user-select: text; -webkit-user-select: text;
+    }
+    .feedback-textarea:focus { border-color: rgba(91,158,240,0.5); }
+    .feedback-textarea::placeholder { color: #3A6090; }
+
     .settings-overlay {
       position: absolute; inset: 0;
       background: rgba(0,0,0,0.5);
@@ -584,6 +710,8 @@
     }
     .setting-btn:hover { background: rgba(255,255,255,0.13); }
     .setting-btn:active { transform: scale(0.97); }
+    .setting-btn-danger { color: #E07070; border-color: rgba(224,112,112,0.3); }
+    .setting-btn-danger:hover { background: rgba(224,112,112,0.12); }
 
     .save-btn {
       width: 100%; padding: 12px;
@@ -732,6 +860,14 @@
         </div>
       </div>
 
+      <!-- Update available banner — shown when Worker reports a newer version -->
+      <div id="update-banner">
+        <i class="ti ti-download" style="font-size:13px;color:#7FB8FF;"></i>
+        <span id="update-banner-text">A new version is available.</span>
+        <a id="update-banner-link" href="#" onclick="return openUpdatePage()">Download →</a>
+        <button id="update-dismiss" onclick="dismissUpdate()" title="Dismiss">✕</button>
+      </div>
+
       <div class="scroll-body">
 
       <div class="content">
@@ -803,11 +939,12 @@
           <span class="credits-label">Credits</span>
           <span class="credits-count" id="credits-count">— remaining</span>
         </div>
-        <button class="credits-buy">Top up</button>
+        <button class="credits-buy" onclick="openTopUp()">Top up</button>
 
         <div class="social-blurb">
           <a href="#" onclick="event.preventDefault(); window.electronAPI.openExternal('https://forms.gle/vXG9oHvTDAWXFqFN7')">Submit your Slice</a> and get featured on
           <a href="#" class="social-ig-link" onclick="event.preventDefault(); window.electronAPI.openExternal('https://www.instagram.com/sliceoflife_app/')" title="@sliceoflife.app on Instagram"><i class="ti ti-brand-instagram"></i></a>
+          <a href="#" onclick="event.preventDefault(); openFeedback()" style="margin-left:auto;">Report a bug</a>
         </div>
 
       </div>
@@ -834,11 +971,13 @@
           <div class="setting-sub">Where your daily Slices and videos are saved.</div>
         </div>
 
-        <div class="setting-group">
-          <div class="setting-label">API KEY</div>
-          <div class="setting-sub" style="margin-bottom:6px;">Use your own Anthropic API key instead of credits.</div>
-          <input type="password" class="setting-input" id="api-key-input" placeholder="sk-ant-api03-…" autocomplete="off">
-          <div class="api-status" id="api-status"></div>
+        <div class="setting-group" id="license-group">
+          <div class="setting-label">LICENSE</div>
+          <div class="setting-row">
+            <span class="setting-input" id="license-key-display" style="flex:1;line-height:36px;padding:0 10px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#5A7A9A;">Not activated</span>
+            <button class="setting-btn setting-btn-danger" id="deactivate-btn" onclick="deactivateApp()" style="display:none;flex-shrink:0;">Deactivate</button>
+          </div>
+          <div style="margin-top:6px;font-size:12px;color:#5A7A9A;" id="settings-credit-count">— credits remaining</div>
         </div>
 
         <div class="setting-group" style="margin-top:8px;">
@@ -875,15 +1014,90 @@
             <div class="faq-item"><div class="faq-question" onclick="toggleFaq(this)">What is the XML export for?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">It gives editors a head start. Instead of sorting through raw footage yourself, you get a rough cut of your vlog in your editing software with all clips placed and synced. Tweak from there.</div></div>
             <div class="faq-item"><div class="faq-question" onclick="toggleFaq(this)">Can I re-render with different settings?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">Yes. On the results screen after any render, there's a Re-edit button. Change the orientation, caption style, or other settings and re-render in seconds — without waiting for the AI to re-analyze your footage.</div></div>
             <div class="faq-section-label">ACCOUNT</div>
-            <div class="faq-item" style="border-bottom:none;"><div class="faq-question" onclick="toggleFaq(this)">Can I use my own Anthropic API key?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">Yes. Go to Settings and paste your key in the API Key field. The app will use it for all AI processing.</div></div>
+            <div class="faq-item" style="border-bottom:none;"><div class="faq-question" onclick="toggleFaq(this)">How do credits work?<i class="ti ti-chevron-down faq-chevron"></i></div><div class="faq-answer">Each render uses 1–3 credits depending on the output length (1 min = 1 credit, 3 min = 1 credit, 5 min = 2 credits, 10 min = 3 credits). Your license comes with 50 starter credits. Top up any time from the credits bar on the home screen.</div></div>
           </div>
         </div>
 
         <button class="save-btn" onclick="saveSettings()">Save</button>
+        <div style="text-align:center;margin-top:14px;">
+          <button onclick="openAbout()" style="background:none;border:none;color:#3A6090;font-size:11px;font-family:inherit;cursor:pointer;padding:4px 8px;-webkit-app-region:no-drag;">About · v0.1.32</button>
+        </div>
 
       </div>
     </div>
   </div><!-- /settings-overlay -->
+
+  <!-- About overlay -->
+  <div class="settings-overlay" id="about-overlay" onclick="closeAboutOnOverlay(event)">
+    <div class="settings-panel" id="about-panel">
+      <div class="settings-header">
+        <div class="settings-title">About</div>
+        <button class="settings-close" onclick="event.stopPropagation(); closeAbout()"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="settings-body">
+
+        <div style="text-align:center;padding:16px 0 20px;">
+          <div style="font-size:20px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#fff;margin-bottom:6px;">Slice of Life</div>
+          <div style="font-size:12px;color:#5A7A9A;">Version 0.1.32</div>
+          <div style="font-size:12px;color:#3A6090;margin-top:8px;line-height:1.6;">Your footage never leaves your Mac.<br>Built for daily vloggers.</div>
+          <div style="font-size:11px;color:#3A6090;margin-top:12px;">© 2026 Nathan Griffey. All rights reserved.</div>
+        </div>
+
+        <div class="setting-group">
+          <button class="setting-btn faq-toggle" style="width:100%;display:flex;align-items:center;justify-content:space-between;" onclick="toggleLicenses(this)">
+            <span>Acknowledgements</span>
+            <i class="ti ti-chevron-down faq-chevron"></i>
+          </button>
+          <div class="settings-faq-items" id="licenses-items">
+            <div style="padding:12px 2px 4px;font-size:11px;line-height:1.7;color:#5A7A9A;">
+
+              <div style="margin-bottom:12px;">
+                <div style="color:#7FB8FF;font-weight:600;margin-bottom:2px;">FFmpeg</div>
+                Licensed under the GNU LGPL v2.1 and in part the GNU GPL v2. Source code available at ffmpeg.org.
+              </div>
+
+              <div style="margin-bottom:12px;">
+                <div style="color:#7FB8FF;font-weight:600;margin-bottom:2px;">ExifTool</div>
+                By Phil Harvey. Distributed under the Perl Artistic License or GNU GPL. Source at exiftool.org.
+              </div>
+
+              <div style="margin-bottom:12px;">
+                <div style="color:#7FB8FF;font-weight:600;margin-bottom:2px;">Whisper.cpp</div>
+                Copyright © 2023 Georgi Gerganov. MIT License.
+              </div>
+
+              <div style="margin-bottom:12px;">
+                <div style="color:#7FB8FF;font-weight:600;margin-bottom:2px;">Electron</div>
+                Copyright © Electron contributors. MIT License.
+              </div>
+
+              <div style="margin-bottom:12px;">
+                <div style="color:#7FB8FF;font-weight:600;margin-bottom:2px;">Express</div>
+                Copyright © 2009–2014 TJ Holowaychuk. MIT License.
+              </div>
+
+              <div style="margin-bottom:12px;">
+                <div style="color:#7FB8FF;font-weight:600;margin-bottom:2px;">Anthropic SDK</div>
+                Copyright © Anthropic. MIT License.
+              </div>
+
+              <div style="margin-bottom:12px;">
+                <div style="color:#7FB8FF;font-weight:600;margin-bottom:2px;">Montserrat</div>
+                Designed by Julieta Ulanovsky. SIL Open Font License 1.1.
+              </div>
+
+              <div>
+                <div style="color:#7FB8FF;font-weight:600;margin-bottom:2px;">Tabler Icons</div>
+                Copyright © 2019 Paweł Kuna. MIT License.
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div><!-- /about-overlay -->
 
   <!-- Today's Prompt overlay -->
   <div class="settings-overlay" id="prompt-overlay" onclick="closePromptOnOverlay(event)">
@@ -976,9 +1190,115 @@
 
   </div><!-- /app-window -->
 
+  <!-- Top-up overlay -->
+  <div class="topup-overlay" id="topup-overlay" onclick="closeTopUpOnOverlay(event)">
+    <div class="topup-card">
+      <div class="topup-header">
+        <div class="topup-title">Add Credits</div>
+        <button class="topup-close" onclick="closeTopUp()"><i class="ti ti-x"></i></button>
+      </div>
+
+      <div class="pack-list">
+        <div class="pack-card">
+          <div class="pack-left">
+            <div class="pack-amount">50</div>
+            <div class="pack-label">credits</div>
+          </div>
+          <div class="pack-right">
+            <div class="pack-price">$9.99</div>
+            <button class="pack-buy" onclick="window.electronAPI.openExternal('https://sliceoflife-app.com/buy/50')">Buy</button>
+          </div>
+        </div>
+        <div class="pack-card">
+          <div class="pack-left">
+            <div class="pack-amount">150</div>
+            <div class="pack-label">credits</div>
+          </div>
+          <div class="pack-right">
+            <div class="pack-price">$24.99</div>
+            <button class="pack-buy" onclick="window.electronAPI.openExternal('https://sliceoflife-app.com/buy/150')">Buy</button>
+          </div>
+        </div>
+        <div class="pack-card">
+          <div class="pack-left">
+            <div class="pack-amount">400</div>
+            <div class="pack-label">credits</div>
+          </div>
+          <div class="pack-right">
+            <div class="pack-price">$54.99</div>
+            <button class="pack-buy" onclick="window.electronAPI.openExternal('https://sliceoflife-app.com/buy/400')">Buy</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="topup-divider"></div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="topup-redeem-label">Have a code?</div>
+        <div class="topup-redeem-row">
+          <input type="text" class="setting-input" id="topup-code-input" placeholder="Paste your credit key…" autocomplete="off" onkeydown="if(event.key==='Enter')redeemTopUp()">
+          <button class="topup-redeem-btn" id="topup-redeem-btn" onclick="redeemTopUp()">Redeem</button>
+        </div>
+        <div id="topup-error"  style="font-size:12px;color:#ff6b6b;min-height:16px;"></div>
+        <div id="topup-success" style="font-size:12px;color:#60C060;min-height:16px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feedback overlay -->
+  <div class="topup-overlay" id="feedback-overlay" onclick="closeFeedbackOnOverlay(event)">
+    <div class="topup-card" style="width:320px;">
+      <div class="topup-header">
+        <div class="topup-title">Report a Bug</div>
+        <button class="topup-close" onclick="closeFeedback()"><i class="ti ti-x"></i></button>
+      </div>
+      <textarea class="feedback-textarea" id="feedback-text" placeholder="What happened? What did you expect?"></textarea>
+      <button class="save-btn" onclick="submitFeedback()">Send</button>
+    </div>
+  </div>
+
+  <!-- Activation overlay — blocking, no close button -->
+  <div class="settings-overlay" id="activation-overlay">
+    <div class="settings-panel" id="activation-panel">
+      <div class="settings-header">
+        <div class="settings-title">Activate Slice of Life</div>
+      </div>
+      <div class="settings-body">
+        <p style="font-size:13px;color:#7FB8FF;line-height:1.6;margin:0 0 16px;">Enter the license key from your purchase email to get started.</p>
+        <input type="text" class="setting-input" id="activation-key-input" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off" style="width:100%;box-sizing:border-box;" onkeydown="if(event.key==='Enter')activateApp()">
+        <div id="activation-error" style="color:#ff6b6b;font-size:12px;min-height:18px;margin-top:8px;"></div>
+        <button class="save-btn" onclick="activateApp()" id="activate-btn" style="margin-top:12px;">Activate</button>
+        <div style="text-align:center;margin-top:12px;">
+          <a href="#" onclick="event.preventDefault(); window.electronAPI.openExternal('https://sliceoflife-app.com')" style="color:#3A6090;font-size:11px;">Buy a license →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
 <script src="/js/orbs.js"></script>
 <script src="/js/sound.js"></script>
   <script src="/js/home.js"></script>
   <script src="/js/settings.js"></script>
+  <script>
+    let _updateDownloadUrl = null;
+
+    if (window.electronAPI && window.electronAPI.onUpdateAvailable) {
+      window.electronAPI.onUpdateAvailable(({ version, downloadUrl }) => {
+        _updateDownloadUrl = downloadUrl;
+        document.getElementById('update-banner-text').textContent =
+          `Version ${version} is available.`;
+        document.getElementById('update-banner').classList.add('visible');
+      });
+    }
+
+    function openUpdatePage() {
+      if (_updateDownloadUrl) window.electronAPI.openExternal(_updateDownloadUrl);
+      return false;
+    }
+
+    function dismissUpdate() {
+      document.getElementById('update-banner').classList.remove('visible');
+    }
+  </script>
 </body>
 </html>

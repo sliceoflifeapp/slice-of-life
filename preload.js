@@ -8,4 +8,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openPath:             (path) => ipcRenderer.invoke('shell:openPath', path),
   showInFinder:         (path) => ipcRenderer.invoke('shell:showInFinder', path),
   openExternal:         (url)  => ipcRenderer.invoke('shell:openExternal', url),
+  onUpdateAvailable:    (cb)   => ipcRenderer.on('update:available', (_, data) => cb(data)),
 });
