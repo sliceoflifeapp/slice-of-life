@@ -17,10 +17,9 @@ npm start       # from project root
   - `routes/api.js` — all HTTP endpoints
   - `lib/journal-pipeline.js` — orchestrates the full single-day pipeline
   - `lib/journal-video.js` — ffmpeg video assembly (rotation, bg blur, captions, encoding)
-  - `lib/clip-vision.js` — unified vision classifier; currently Claude Vision backend; being replaced by Apple Vision Framework binary (see below)
-  - `lib/clip-vision-claude.js` — original Claude Vision implementation (3-frame sampling); kept as fallback
-  - `lib/clip-vision-apple.js` — Apple Vision Framework backend (in progress); calls `vision-cli` Swift binary; full-frame analysis via AVFoundation
-  - `bin/vision-cli` — compiled Swift binary; uses AVFoundation + Vision Framework; returns JSON with `hasFace`, `isTalkingHead`, `qualityScore`, `suggestedRotation`, `facePresenceRatio`
+  - `lib/clip-vision.js` — thin passthrough to `clip-vision-claude.js`; Apple Vision backend removed (deferred)
+  - `lib/clip-vision-claude.js` — Claude Vision implementation (3-frame sampling at 20/50/80%, `-noautorotate`, reports `hasFace`, `isTalkingHead`, `qualityScore`, `suggestedRotation`, `bestFrame`, `frameProportions`)
+  - `server/bin/vision-cli` + `server/vision-cli/main.swift` — Apple Vision Swift binary; kept in repo but not used
   - `lib/fcpxml.js` — Premiere Pro xmeml v4 XML generator
   - `lib/trip-pipeline.js` — deleted (was retired; removed in dead code purge)
 - `ui/` — plain HTML/CSS/JS frontend
@@ -72,29 +71,22 @@ npm start       # from project root
 
 ### Credits
 - Stored in `~/.slice-of-life/credits.json`, default 500
-- `credits.deduct()` exists but is not yet wired into the pipeline — renders are currently free
+- `credits.js` exposes only `load()` — `save()` and `deduct()` removed as unwired dead code
 - Lemon Squeezy planned as payment processor for future credit top-ups (license key flow for beta)
+- **Legal**: app is monetizable once Apple Developer account + notarization + LLC are in place; copyright is automatic under US law (`© 2026 Nathan Griffey`)
 
-### Apple Vision Framework migration
-- **Goal**: replace Claude Vision for all perception tasks (face detection, talking head classification, rotation, quality scoring) with on-device Apple Vision Framework. Claude retains all understanding tasks (semantic b-roll assignment, best window selection, story arc, thumbnail selection, today's prompt).
-- **Why**: full-frame analysis (every frame vs. 3 samples), faster, no API cost for perception, stronger privacy story ("everything runs on your Mac, including the analysis"), more reliable on edge cases (backlit clips, partial faces, mid-clip camera pans).
-- **Architecture**: same inputs/outputs as current `clip-vision.js` — `hasFace`, `isTalkingHead`, `qualityScore`, `suggestedRotation`. Drop-in replacement. Pipeline, edit logic, and UI unchanged.
-- **Backend selection**: `visionBackend` flag in config (`'apple' | 'claude'`). If `vision-cli` binary fails to load, auto-falls back to Claude. Both backends live side-by-side during transition.
-- **Swift binary (`vision-cli`)**: follows same pattern as `whisper-cli` — compiled for arm64, bundled in `app.asar.unpacked`, dylibs alongside binary, quarantine stripped on first run. Returns JSON to stdout.
-- **What `vision-cli` detects per clip**:
-  - `hasFace` — boolean, face present in any frame
-  - `facePresenceRatio` — float 0–1, fraction of frames with a detected face
-  - `isTalkingHead` — boolean, face present + forward-facing for majority of clip
-  - `suggestedRotation` — 0/90/180/270, inferred from video stream natively (replaces metadata tag + display matrix delta logic)
-  - `qualityScore` — float 0–100, based on sharpness, exposure, motion blur per frame
-- **Claude Vision tasks that remain**:
-  - Semantic b-roll assignment (`clip.semanticSection`)
-  - `findBestWindow` transcript excerpt selection
-  - Story arc generation for multi-day footage
-  - Thumbnail scenic-preference selection
-  - Today's Prompt coaching suggestions
-- **Distribution**: same `DYLD_LIBRARY_PATH` pattern as Whisper — set all Vision Framework paths in `execFileAsync` env. Test on a second machine before shipping.
-- **Files to rename before starting**: `clip-vision.js` → `clip-vision-claude.js`; new `clip-vision-apple.js` written fresh; `clip-vision.js` becomes a thin router that reads `visionBackend` from config and requires the correct backend.
+### Apple Vision Framework (deferred)
+- Swift binary (`server/bin/vision-cli`) and source (`server/vision-cli/main.swift`) kept in repo but not used.
+- `clip-vision.js` is now a 12-line passthrough to `clip-vision-claude.js`; `clip-vision-apple.js` deleted.
+- Root issue that blocked it: `suggestedRotation` was always-populated from `preferredTransform`, changing `clipRotFrag` behavior for faceless b-roll clips that were correct as-is.
+- **To re-enable when revisiting:** in `clip-vision-apple.js`, only set `suggestedRotation` when Vision disagrees with ffmpeg probe metadata (not as a passthrough). Or: in `clipRotFrag`, for display-matrix b-roll without a face, ignore `suggestedRotation` entirely.
+- **To rebuild `vision-cli` after editing `main.swift`:**
+  ```bash
+  swiftc -O server/vision-cli/main.swift \
+      -o server/bin/vision-cli \
+      -framework AVFoundation -framework Vision \
+      -framework CoreImage -framework Foundation
+  ```
 
 ### UI design system
 - Font: Montserrat (local, `/fonts/Montserrat-Regular.ttf`), `zoom: 1.1` on `.inner`
@@ -263,96 +255,9 @@ Each entry: `{ videoPath, name, thumbPath, folderPath, transcriptExcerpt, footag
 
 ## Pending / Next Session
 
-### Apple Vision migration — COMPLETE (v0.1.30)
-All steps done. Default backend is now Apple Vision.
-
-**How to rebuild `vision-cli` after editing `main.swift`:**
-```bash
-swiftc -O server/vision-cli/main.swift \
-    -o server/bin/vision-cli \
-    -framework AVFoundation -framework Vision \
-    -framework CoreImage -framework Foundation
-```
-(Deprecation warnings about macOS 13+ async APIs are expected and harmless.)
-
-**Files:**
-- `server/vision-cli/main.swift` — Swift source; edit here
-- `server/bin/vision-cli` — compiled arm64 binary; checked into repo; rebuild after source changes
-- `server/lib/clip-vision.js` — router; reads `visionBackend` from config.json (`'apple'`|`'claude'`)
-- `server/lib/clip-vision-apple.js` — Apple Vision backend; auto-falls back to Claude if binary missing
-- `server/lib/clip-vision-claude.js` — original Claude backend (3-frame sampling); kept as fallback
-
-**Switching backends:** set `visionBackend: 'claude'` in `{userData}/config.json` and restart, or call `POST /settings` with `{ visionBackend: 'claude' }`. Default is `'apple'`.
-
-**Quality score:** luminance standard deviation over a 16×16 thumbnail (CoreGraphics, no CIImage coord issues). stdDev≈50 → score≈63, stdDev≈80 → score=100. Reasonable for b-roll ranking and highlight reel selection.
-
-**Rotation:** read directly from `AVURLAsset` video track `preferredTransform`. Equivalent to the display matrix path in the old ffmpeg probe. `atan2(b,a)` gives visual CW rotation (video Y-down convention).
-
-**Fixed post-launch (v0.1.30):**
-- B-roll rotation regression: `rotFromTag` clips were getting Apple Vision rotation applied (Vision reads `preferredTransform` which may be identity for cameras that store rotation only in the rotate tag, not the tkhd matrix). Fix: promote `rotFromTag` check above Vision check in `clipRotFrag` — tag is always authoritative for b-roll.
-- A-roll mid-sentence cut: `findDenseWindow` and `findBestWindow` hard-cut at `windowStart + maxDuration`, slicing mid-sentence when the last Whisper segment straddled the boundary. Fix: `extendToSegmentBoundary()` extends window end to the last segment's end, up to 3s grace.
-
-**Still pending:**
-- Test on a second machine to verify binary runs without issues
-- Update debug-last-run.log to show `_source: 'apple'` vs `'claude'` per clip (currently logged to console only)
-
-### Session fixes (post v0.1.30)
-
-**Bug fixes applied (not yet versioned/distributed):**
-
-- **`??` + `||` syntax error (Node.js 26)**: `(nextAroll.trimEnd ?? nextAroll.duration || 0)` → `SyntaxError`. Fixed with parens: `(nextAroll.trimEnd ?? (nextAroll.duration || 0))`. Same at bridge last-resort line. This was causing "0 files" on folder scan — `require('../lib/journal-video')` failed, scan endpoint returned 500 which configure screen interpreted as 0 clips.
-
-- **Teaser detection removed entirely**: The "let me show you" / "check this out" phrase detection that trimmed the last a-roll clip was causing mid-word cuts (Whisper segments don't align with word boundaries). Feature removed completely from `journal-pipeline.js` — no `TEASER_RE`, no `runTeaserScan`, no if block.
-
-- **B-roll ordering**: `sec.brolls.sort()` was using `filledAt` as secondary key — unreliable for AirDropped clips. Fixed to use `clipComparator` (iPhone filename number IMG_XXXX as primary sort key). Import `clipComparator` from `./clip-sort` was added to `journal-video.js`.
-
-- **B-roll rotation (display-matrix faceless clips)**: Previous fix applied rotation to ALL faceless display-matrix b-roll unconditionally. Too broad — landscape clips with stale non-zero display matrix got incorrectly rotated. Fixed in `clipRotFrag`: only apply display-matrix rotation when `rotation !== 0 && storedW > storedH` (portrait iPhone b-roll case). Clips 5148/5152 may still need investigation.
-
-- **Bridge last-resort guard**: Added `nextNarrDur` check before borrowing next section's only b-roll for a bridge. Only borrows when `nextNarrDur < FACE_DUR * 3`.
-
-**New feature: `selectEndingClip` (`journal-pipeline.js`)**
-- Claude Haiku scans narration clips from the last 35% of the shoot day
-- Picks the one that sounds most like a natural conclusion ("what a great day", "heading home", "wrapping up")
-- Only swaps when the chosen clip is within 1 position of the end (prevents pacing disruption)
-- Called just before `assignBrollSemantically` in the pipeline
-
-**L-cut cutaway architecture (`journal-video.js`) — MAJOR CHANGE**
-
-The edit model is now a true two-track documentary cutaway:
-- Narration audio is continuous throughout — never replaced by b-roll ambient sound
-- B-roll video plays OVER the narration at cut points (L-cut / J-cut technique)
-- Before: overflow and bridge b-roll used b-roll's own ambient audio (volume 0.12)
-- After: overflow and bridge b-roll use the **next section's narration audio** starting from that section's `trimStart`
-- Section N+1's face cam then appears with both video and audio advanced by the consumed duration — lip sync is perfect, viewer hears the narrator start talking during b-roll then sees their face mid-sentence
-
-**Key implementation details:**
-- `renderSection(i, narrAudioOffset = 0)` — new param; `adjustedStart = narrTrimStart + narrAudioOffset` offsets both video and audio start
-- `renderBrollWithNarrAudio(br, narrClip, narrStart, brDur, tag)` — renders b-roll video + narration audio from another clip (two inputs to ffmpeg)
-- `renderBrollSilent(br, brDur, tag)` — used for last section's overflow (no next narration to borrow)
-- `audioOffsets[]` array tracks how many seconds of each section's narration were consumed before it renders
-- Rendering is sequential (already was CONCURRENCY=1); Pass 1 + concat loop merged into single loop
-- Cleanup in `finally` block updated to walk `sectionFiles` (all temp files) instead of `result.overflowFiles` (removed)
-
-### v0.1.30 — Apple Vision deactivated (current)
-
-**Built and distributed:** `dist/Slice of Life-0.1.30-arm64.dmg`
-
-**Only change from v0.1.29:** `server/lib/clip-vision.js` defaults to `'claude'` instead of `'apple'`.
-
-```js
-// clip-vision.js — how to switch backends:
-_backend = cfg.visionBackend === 'apple' ? 'apple' : 'claude';  // default: claude
-```
-
-To re-enable Apple Vision: set `visionBackend: 'apple'` in `{userData}/config.json` and restart. Everything else — the Swift binary, clip-vision-apple.js, clip-vision-claude.js — is untouched.
-
-**Why reverted:** Apple Vision sets `suggestedRotation` on every clip (reads `preferredTransform` unconditionally). This caused `clipRotFrag` to use Vision's rotation for faceless b-roll clips that were previously getting correct rotation from probe metadata. Claude Vision only sets `suggestedRotation` when it actually detects a problem, so fallback behavior is correct.
-
-**Apple Vision strategy for next attempt:**
-- The root issue: `suggestedRotation` being always-populated changed clipRotFrag behavior for faceless b-roll
-- Fix needed: in `clip-vision-apple.js`, only set `suggestedRotation` when it differs meaningfully from `info.rotation` (the ffmpeg probe value) — i.e. when Vision disagrees with metadata, not just as a passthrough of preferredTransform
-- Or: in `clipRotFrag`, for display-matrix b-roll without a face, ignore `suggestedRotation` entirely and always use `info.rotation` from probe — same result, simpler
-- B-roll section ordering (wrong section assignment) is a separate issue from Vision and was partially addressed with filename-number proximity matching (not shipped in v0.1.30 — was reverted with journal-video.js)
+### v0.1.30 history (archived)
+- Apple Vision binary shipped and immediately reverted — `suggestedRotation` always-populated changed `clipRotFrag` behavior for faceless b-roll. See Apple Vision Framework section above for fix strategy.
+- L-cut audio architecture written and reverted as untested. Stale comment removed in v0.1.32.
 
 ### Session fixes (B-roll indexer + narration detection)
 
@@ -447,9 +352,10 @@ To re-enable Apple Vision: set `visionBackend: 'apple'` in `{userData}/config.js
 - Philosophy: if a clip is filmed sideways, that's user error. The app being predictable (leave clips alone unless confident) is better than being wrong on correctly-oriented clips.
 
 ### Other pending
-- Wire up Lemon Squeezy credit top-up flow when ready to monetize
-- Investigate Whisper returning 1 word on long clips (63s+) — likely audio format or timeout issue
-- L-cut / cutaway audio architecture: code was written in a prior session but reverted as untested. Core idea: overflow/bridge b-roll renders with next section's narration audio; section N+1 starts audio+video from `trimStart + consumed`. Needs testing before reshipping.
+- Wire up Lemon Squeezy credit top-up flow when ready to monetize (Nathan handling)
+- YouTube upload feature — full plan in memory file; needs Google Cloud project first
+- Apple Developer account + notarization — required before taking payments ($99/yr)
+- LLC formation — Nathan's personal task before accepting payments
 
 ### Session fixes (v0.1.31 — vlogger pivot + seek point + SRT export)
 
@@ -541,16 +447,99 @@ To re-enable Apple Vision: set `visionBackend: 'apple'` in `{userData}/config.js
 - **`targetDuration` validation**: Raw HTTP body value passed directly to pipeline with no guard. Now: `Math.max(60, parseInt(req.body.targetDuration, 10) || 180)` — can never be 0 or NaN which would cause zero-length clip math and ffmpeg crash.
 - **`buildSequential` missing return**: Function returned `undefined`; callers assumed `{ resolvedTimeline, srtPath }`. Added `return { resolvedTimeline: null, srtPath: null }` — re-edits now consistent with main render path.
 
-**Pending robustness issues (not yet fixed — start here next session)**
-1. **Thumbnail crash after clear** (`api.js` line ~495): `/journals/thumbnail` does `loadExports().map(e => path.resolve(e.videoPath))` — after `/journals/clear`, entries have no `videoPath`, so `path.resolve(undefined)` throws. Fix: add `.filter(e => e.videoPath)` before the map.
-2. **Multi-day temp files not cleaned on failure** (`journal-pipeline.js`): Per-day segment files written to `os.tmpdir()` are cleaned inline on the happy path only. If any day fails, the large segment files (200–400MB each) are orphaned in `/tmp`. Needs try/finally wrapping the day loop.
-3. **Multi-day concat has no timeout** (`journal-pipeline.js` line ~714): The final ffmpeg stream-copy concat has no `timeout` option. Every other `execFileAsync` call has one. Could hang indefinitely on corrupt segment.
-4. **Highlight reel missing stats** (`journal-pipeline.js`): Highlight reel return value doesn't include `footageDates`, `transcriptExcerpt`, or `stats.rawDurationSec`. Those exports show up blank in the stats banner.
-5. **Thumbnail model unversioned** (`api.js` line ~578): `/journals/thumbnail` uses `'claude-haiku-4-5'` (no version date). All other calls use `'claude-haiku-4-5-20251001'`. Standardize.
-6. **`configureMode` sessionStorage** (`home.js` line ~423): `sessionStorage.setItem('configureMode', 'single')` written on every build start but never read anywhere. Delete it.
-7. **`Onboarding` dead reference** (`home.js` lines ~425–427): Checks `typeof Onboarding !== 'undefined'` — `Onboarding` is never defined anywhere. Two dead lines.
-8. **Photos Library IPC** (`main.js` + `preload.js`): `photos:libraryPath` handler and `window.electronAPI.getPhotosLibraryPath` are registered but never called from any UI. Dead feature stub.
-9. **`_activeMode` implicit global** (`home.js`): Assigned at two locations but never declared with `let`/`const`. Works today, breaks under strict mode.
-10. **`dayBoundaries` / day markers in XML** (`fcpxml.js`): `generate()` accepts and processes `dayBoundaries` to build Premiere markers, but no caller ever passes it — the feature is silently a no-op. Wire it up or remove it.
-11. **Config read pattern repeated 3×** (`journal-pipeline.js`): Same inline IIFE to read `config.json` appears at lines ~521, ~632, ~840. Should be one function at top of file or moved to `app-data.js`.
-12. **`broll-indexer.js` cfg/opts scope bug**: `processClip` calls `askSettleStart(..., cfg)` but variable in scope is `opts`. Causes `scale=undefined:-2` in ffmpeg args, silently produces 0 results for every clip. Fix: pass `opts` not `cfg`.
+All 12 pending robustness issues from v0.1.31 were fixed in v0.1.32 — see v0.1.32 session notes below.
+
+### Session — v0.1.32 robustness + Apple Vision removal + About panel
+
+**Apple Vision removed**
+- `clip-vision.js` rewritten as 12-line passthrough to `clip-vision-claude.js`; `clip-vision-apple.js` deleted
+- `visionBackend` setting removed from `POST /settings` and config handling in `api.js`
+- `resetBackendCache()` left as no-op in `clip-vision.js` so callers don't break
+
+**L-cut stale comment removed** (`journal-video.js`)
+- L-cut code was already reverted in a prior session; only a misleading "L-cut architecture" comment remained — removed
+
+**Whisper robustness** (`whisper.js`)
+- `extractAudio` timeout bumped 60000 → 120000ms (was too tight for 63s+ clips on slow-decode codecs)
+- WAV size diagnostic: after extraction, compares actual bytes to expected minimum (50% of PCM size for clip duration); logs warning to debug log if too small
+- Low word-count logging: if `rawWordCount <= 3` for a clip > 10s, logs raw `.txt` output to debug log for diagnosis
+
+**All 12 pending robustness issues fixed**
+1. **Thumbnail crash after clear** — `api.js`: added `.filter(e => e.videoPath)` before `.map(e => path.resolve(e.videoPath))`
+2. **Multi-day temp files leaked on failure** — `journal-pipeline.js`: `concatList2` declared before try block; try/finally wraps day loop; `tempSegs.length = 0` after happy-path cleanup
+3. **Multi-day concat no timeout** — added `{ timeout: 300000 }` to final ffmpeg stream-copy concat
+4. **Highlight reel missing stats** — return value now includes `footageDates: dayKeys`, `transcriptExcerpt: null`, `stats.rawDurationSec`
+5. **Thumbnail model unversioned** — `api.js`: changed `'claude-haiku-4-5'` → `'claude-haiku-4-5-20251001'`
+6. **`configureMode` sessionStorage dead write** — removed `sessionStorage.setItem('configureMode', 'single')` from `startSession()` in `home.js`
+7. **`Onboarding` dead reference** — removed dead `typeof Onboarding` check block from `startSession()` in `home.js`
+8. **Photos Library IPC** — removed `ipcMain.handle('photos:libraryPath', ...)` from `main.js`; removed `getPhotosLibraryPath` from `preload.js`
+9. **`_activeMode` implicit global** — added `let _activeMode = null;` declaration in `home.js`
+10. **`dayBoundaries` / XML markers** — removed `dayBoundaries` param and all `dayFirstFrame` tracking from `fcpxml.js`; `buildFromTimeline` returns `{ v1, v2 }` (no dayFirstFrame)
+11. **Config read pattern 3×** — extracted `loadOutputConfig()` helper in `journal-pipeline.js`; replaces 3 inline IIFEs
+12. **`broll-indexer.js` cfg/opts scope bug** — `askSettleStart` call changed from `cfg` → `opts` inside `processClip`
+
+**About panel added** (`home.html`, `home.js`)
+- Settings panel has a subtle "About · v0.1.32" button below Save button
+- Clicking it closes Settings and opens a separate About overlay
+- About overlay: "Slice of Life", "Version 0.1.32", tagline, `© 2026 Nathan Griffey. All rights reserved.`, collapsible Acknowledgements
+- Acknowledgements cover: FFmpeg (LGPL/GPL), ExifTool (Perl Artistic/GPL), Whisper.cpp (MIT), Electron (MIT), Express (MIT), Anthropic SDK (MIT), Montserrat (SIL OFL 1.1), Tabler Icons (MIT)
+- Open Source Licenses removed from Settings panel (too much implementation detail for end users)
+
+**Version bumped to 0.1.32; DMG built** (`dist/Slice of Life-0.1.32-arm64.dmg`)
+
+### Session — launch planning, GitHub, distribution infrastructure
+
+**Pricing decided**
+- One-time purchase: **$79**, tax exclusive
+- Credits model: Nathan manages Anthropic API key; users buy credits rather than providing their own key
+- ~$0.10–0.20 API cost per render; starter pack = ~50 renders bundled with purchase (~$5–10 cost of goods)
+- Top-up packs planned: $9.99 (25 renders) / $19.99 (60 renders) / $39.99 (150 renders)
+- No subscription tier at launch — privacy + one-time purchase is the core value prop
+- LLC and business bank account deferred until revenue is consistent
+
+**Credits system architecture (not yet built)**
+- `credits.js` needs `save()` and `deduct()` rebuilt with HMAC tamper protection (license key as HMAC secret)
+- Credits stored locally in `{userData}/credits.json` + HMAC signature — works offline, meaningfully tamper-resistant
+- Check balance before render, deduct on completion, show balance in UI
+- License key activation: first-run prompt → call Lemon Squeezy Licenses API → write starter credit balance on success
+- Top-up flow: user pastes credit code → app calls LS to validate + mark used → adds credits to balance
+- Settings panel needs rework: remove API key field, replace with license key + credit balance + deactivate option
+- Activation limit: 2 per license key (covers MacBook + reinstall); deactivation option in Settings to free a slot
+- PostHog Node.js SDK to be integrated into Express server: track render complete, duration picked, credits remaining, errors
+
+**Lemon Squeezy setup**
+- Store: Slice of Life, USD, tax exclusive, reply-to email set to Nathan's personal email
+- Product: $79 one-time, license keys enabled, 2 activations, no expiry
+- Confirmation modal: "You're in. 🎬" / message pointing to email + download / button "Download Slice of Life" → `https://sliceoflife-app.com/download`
+- Top-up packs: separate LS products, single-use license keys, to be created when credits system is built
+- Product remains **Draft** until credits system + license key activation are built in app
+
+**GitHub setup**
+- App repo pushed to `https://github.com/sliceoflifeapp/slice-of-life` (private)
+- GitHub CLI (`gh`) installed via Homebrew for authentication
+- Git tag `v0.1.32` created; GitHub Release published with `Slice of Life-0.1.32-arm64.dmg` attached
+- Release URL: `https://github.com/sliceoflifeapp/slice-of-life/releases/tag/v0.1.32`
+- Download URL: `https://github.com/sliceoflifeapp/slice-of-life/releases/latest/download/Slice%20of%20Life-0.1.32-arm64.dmg`
+- Future releases: tag commit → `gh release create` → upload DMG; auto-updater will use this once notarization is set up
+
+**Website repo + domain**
+- Landing page (`/Users/nathangriffey/Desktop/gather-web/`) pushed to `https://github.com/sliceoflifeapp/slice-of-life-web` (public)
+- GitHub Pages enabled, custom domain connected: **sliceoflife-app.com** (purchased on Namecheap, $11.28/yr)
+- DNS: 4 A records (185.199.108–111.153) + CNAME www → sliceoflifeapp.github.io; HTTPS enforced
+- Download page built at `sliceoflife-app.com/download` — post-purchase redirect from Lemon Squeezy
+- Landing page still has `href="#"` on Buy buttons — update to LS checkout URL when product goes live
+- Landing page needs: real promo video (June 22nd trip), real testimonials, PostHog snippet, credits FAQ entry, "no usage cap" copy updated to reflect credits model
+- Version number on landing page: update `v0.1.31` → `v0.1.32` and `© 2025` → `© 2026`
+- To update site: edit files in `gather-web/`, then `git add + commit + push` from that directory
+
+**Launch roadmap (full)**
+- Phase 1: Foundation — Apple Dev account, GitHub Release ✅, Lemon Squeezy setup (draft)
+- Phase 2: Monetization layer — credits system, license key flow, settings rework, top-up packs, PostHog
+- Phase 2.5: Code review — security-focused, hire Codementor or technical friend; focus on credits + license key + main.js + api.js
+- Phase 3: Distribution — notarization, auto-updater, GitHub Actions CI/CD
+- Phase 4: Structured beta — 5–10 strangers, watch them use it, fix issues
+- Phase 5: Marketing assets — demo video + screenshots from June 22nd trip footage
+- **June 22nd trip** — hard deadline; app must be stable; record screen while using app; footage becomes demo video
+- Phase 6: Landing page — already mostly built; needs video, testimonials, PostHog, LS buy link wired
+- Phase 7: Pre-launch — end-to-end clean Mac test, Product Hunt prep
+- Phase 8: Launch — Product Hunt, r/editors, r/vlogging, Discord communities
