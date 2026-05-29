@@ -534,7 +534,7 @@ All 12 pending robustness issues from v0.1.31 were fixed in v0.1.32 — see v0.1
 
 **Launch roadmap (full)**
 - Phase 1: Foundation — Apple Dev account, GitHub Release ✅, Lemon Squeezy setup (draft)
-- Phase 2: Monetization layer — credits system, license key flow, settings rework, top-up packs, PostHog
+- Phase 2: Monetization layer — credits system ✅, license key flow ✅, settings rework ✅, top-up packs ✅, PostHog
 - Phase 2.5: Code review — security-focused, hire Codementor or technical friend; focus on credits + license key + main.js + api.js
 - Phase 3: Distribution — notarization, auto-updater, GitHub Actions CI/CD
 - Phase 4: Structured beta — 5–10 strangers, watch them use it, fix issues
@@ -543,3 +543,205 @@ All 12 pending robustness issues from v0.1.31 were fixed in v0.1.32 — see v0.1
 - Phase 6: Landing page — already mostly built; needs video, testimonials, PostHog, LS buy link wired
 - Phase 7: Pre-launch — end-to-end clean Mac test, Product Hunt prep
 - Phase 8: Launch — Product Hunt, r/editors, r/vlogging, Discord communities
+
+### Session — credits system, monetization layer, top-up UI
+
+**Credits system (`server/lib/credits.js` — full rewrite)**
+- HMAC tamper protection: `{ credits, hmac }` in credits.json; tampered file returns 0
+- `load(licenseKey?)`, `save(n, licenseKey)`, `deduct(n, licenseKey)`, `costForFootage(totalSec)`
+- Credit cost based on SOURCE footage duration (not output): ≤30min=1, ≤60min=2, ≤90min=3, ≤120min=4, >120min=5
+- Hard caps: `MAX_FOOTAGE_SEC = 3h (10800s)`, `MAX_CLIPS = 150` — both enforced at scan + render start
+- `activate(licenseKey)` — calls LS Licenses API, writes 200 starter credits on success
+- `deactivate(licenseKey, instanceId)` — calls LS deactivate, clears credits.json
+- `redeem(topupCode, licenseKey)` — validates single-use LS key, maps variant ID → credits, adds to balance
+- Top-up variant IDs: `{ '1714489': 50, '1714498': 150, '1714504': 400 }`
+- `STARTER_CREDITS = 200`
+- Uses Node built-in `https` (no new dependencies) for all LS API calls
+- Path: `getAppDataDir()` from `app-data.js` (not hardcoded)
+
+**Pricing decisions**
+- Main app: $79 one-time, 200 starter credits (~$4.60 COGS, 94% margin)
+- Top-up packs: $9.99/50 credits, $24.99/150 credits, $54.99/400 credits
+- Average COGS per credit: ~$0.023; all packs 83–89% gross margin
+- Credit cost is per SOURCE footage, not output duration — more accurate to actual API cost (Vision calls per clip)
+- Starter 200 credits ≈ 3 months of daily vlogging; generous enough to build habit, unused credits cost Nathan nothing
+- Feedback email: sliceoflifetech@gmail.com
+
+**Lemon Squeezy products created (all still Draft)**
+- Main app: Software tax category, 2 activations, no expiry
+- 3 top-up packs: SaaS tax category, 1 activation (single-use), no expiry, Business use
+- Buy buttons in app use placeholder URLs `sliceoflife-app.com/buy/50` etc — update when LS goes live
+- LS products go live after: LLC formed + business bank account linked
+
+**API endpoints added (`server/routes/api.js`)**
+- `POST /activate` — validates LS key, stores `licenseKey + instanceId` in config.json, writes 200 credits
+- `POST /deactivate` — calls LS deactivate, clears key from config, deletes credits.json
+- `POST /topup` — validates single-use credit code via LS, adds credits to balance
+- `GET /settings` — now returns `hasLicense`, `licenseKey` (masked first 4 chars + `—————`), `creditBalance`
+- `GET /journal/scan` — now returns `overCap: bool`, `capError: string` when footage exceeds limits
+- `POST /journal/start` — enforces caps + checks credit balance (402 if insufficient); deducts after success; returns `creditBalance + creditCost` in job result
+- `POST /settings` — API key handling removed entirely
+- Dev bypass: if `cfg.anthropicApiKey || process.env.ANTHROPIC_API_KEY` → `hasLicense: true`, 9999 credits, no deduction, no LS calls
+
+**Settings panel rework (`ui/home.html`, `ui/js/settings.js`)**
+- API KEY section removed entirely
+- LICENSE section added: masked key display, credit balance, Deactivate button
+- `deactivateApp()` in settings.js — calls POST /deactivate, reloads window
+- `saveSettings()` now only sends `outputFolder`
+- FAQ entry updated: "How do credits work?" replaces API key FAQ
+
+**Activation modal (`ui/home.html`, `ui/js/home.js`)**
+- Blocking overlay (no close button) — shown on page load when `hasLicense: false`
+- Enter license key → POST /activate → on success modal hides, credits bar shows 200
+- Enter key triggers on Enter keypress too
+- "Buy a license →" link opens sliceoflife-app.com externally
+
+**Top-up modal (`ui/home.html`, `ui/js/home.js`)**
+- Centered dark navy card (#061422) — distinct from slide-in settings panel style
+- Matches download page aesthetic: subtle borders, glass blue Buy buttons, credit amounts large (28px bold)
+- Three pack cards: 50/$9.99, 150/$24.99, 400/$54.99 with Buy buttons (external LS checkout URLs)
+- "Have a code?" redemption section: input + Redeem button calls POST /topup
+- Success: "✓ X credits added. New balance: Y." in green, auto-closes after 2s, credit bar updates
+- Opened by "Top up" button in credits bar
+
+**Configure screen changes (`ui/configure.html`)**
+- `costForFootage()` and cap constants mirror server-side
+- Cap error shown in red banner, Build button disabled when over cap
+- "Uses X credits from your balance" shown above Build button after scan
+- `totalSec` and `clipCount` passed in build POST body for server-side validation
+
+**Credits bar + journal.html**
+- Credits bar on home now fetched from GET /settings (not separate /credits endpoint)
+- Credit bar updates after render completes (creditBalance from job result)
+- Insufficient credits shows "Not enough credits" error state with balance + cost in journal.html
+
+**Bug feedback button**
+- "Report a bug" link in credits bar social blurb (right-aligned, same color as "Submit your Slice")
+- Opens centered modal with textarea; Send opens `mailto:sliceoflifetech@gmail.com` with message pre-filled
+- No backend — user's mail client sends it directly
+
+### Session — Cloudflare Worker proxy
+
+**All Anthropic API calls now proxy through a Cloudflare Worker. Nathan's key never lives in the binary.**
+
+**New file: `cloudflare-worker/worker.js`**
+- Cloudflare Worker that validates `X-License-Key` header against Lemon Squeezy, then proxies to Anthropic with Nathan's real key from Cloudflare Secrets
+- License validation cached 24h in KV (invalid keys cached 1h so activation takes effect quickly)
+- Dev bypass: if `X-License-Key === DEV_BYPASS_SECRET` (env var in Worker), skip LS validation
+- LS outage → fail open (return true) so users aren't blocked
+- CORS headers added to all responses
+
+**New file: `cloudflare-worker/wrangler.toml`**
+- Wrangler config; KV binding `LICENSE_CACHE`, placeholder `id` to replace after `wrangler kv namespace create`
+
+**New file: `cloudflare-worker/README.md`**
+- Step-by-step deployment: install Wrangler → create KV → `wrangler secret put` for key + dev bypass → `wrangler deploy` → update `WORKER_URL` constant in app
+
+**New file: `server/lib/anthropic-client.js`**
+- Central Anthropic client factory used by all lib files
+- `WORKER_URL = process.env.GATHER_WORKER_URL || 'https://gather-proxy.nathangriffey.workers.dev'`
+- `getLicenseKey()`: returns `process.env.GATHER_DEV_KEY` (dev) or `cfg.licenseKey` (prod)
+- `createClient()`: returns `new Anthropic({ apiKey: 'x', baseURL: WORKER_URL, defaultHeaders: { 'X-License-Key': key } })` or null if no key
+
+**Updated: `server/lib/clip-vision-claude.js`, `whisper.js`, `broll-indexer.js`**
+- All `getClient()` functions now call `createClient()` from `anthropic-client.js`
+- Old pattern (read config, check `anthropicApiKey`, instantiate with real key) completely removed
+
+**Updated: `server/routes/api.js`**
+- `devMode` changed from `!!(process.env.ANTHROPIC_API_KEY || cfg.anthropicApiKey)` → `!!process.env.GATHER_DEV_KEY`
+- Today's prompt + thumbnail selection now use `createClient()` from `anthropic-client.js`
+- `POST /activate` now calls `resetClient()` on `clip-vision-claude` and `whisper` so singleton clients pick up the new license key immediately
+- Removed all `cfg.anthropicApiKey` / `ANTHROPIC_API_KEY` references
+
+**Updated: `server/lib/analytics.js`**
+- `isOffline()` now checks `cfg.licenseKey` (or `GATHER_DEV_KEY`) instead of `anthropicApiKey`
+
+**Dev workflow after this change:**
+1. Set `export GATHER_DEV_KEY="<your-dev-bypass-secret>"` in `~/.zshrc`
+2. `source ~/.zshrc` and launch app with `sol` or `npm start`
+3. App will have `devMode=true`, 9999 credits, AI calls proxy through Worker (Worker accepts dev key)
+4. Until Worker is deployed, AI calls will fail gracefully (SAFE_DEFAULTS in Vision, fallback in Whisper)
+
+### Session — Cloudflare Worker deployment + rotation fix + PostHog
+
+**Cloudflare Worker deployed**
+- Worker live at `https://gather-proxy.sliceoflifeapp.workers.dev`
+- Cloudflare account: `sliceoflifetech@gmail.com`; subdomain: `sliceoflifeapp`
+- KV namespace `LICENSE_CACHE` id: `f326a418491f45eb89d2eced6d2c3663`
+- Secrets stored in Cloudflare: `ANTHROPIC_API_KEY`, `DEV_BYPASS_SECRET`
+- Dev bypass value: `sol-dev-2026-xK9mPqR4` — stored in `~/.zshrc` as `GATHER_DEV_KEY`
+- `server/lib/anthropic-client.js` `WORKER_URL` updated to real Worker URL
+- Confirmed working: all Vision results showed `_source: 'online'` in render log
+- To redeploy after Worker changes: `cd cloudflare-worker && wrangler deploy`
+
+**Rotation fix (`journal-video.js`)**
+- Bug: display-matrix b-roll without a face used `keep as-is` (0° rotation) but `-noautorotate` was still applied, so raw unrotated frames were output — upside-down for clips with 180° display matrix
+- Fix: `clipRotFrag` display-matrix branch now falls back to `info.rotation` (the probe display matrix value) instead of 0° when `hasFace=false`. Only uses Vision when `hasFace=true`.
+- Rule: a-roll → Vision authoritative; rotate-TAG broll → tag authoritative; display-matrix broll with face → Vision; display-matrix broll without face → display matrix from probe (same as any normal player)
+
+**PostHog analytics**
+- `posthog-node` was already installed; `analytics.js` already wired into `api.js`
+- Added `license_activated` event (fires on successful LS key activation, includes `starterCredits`)
+- Added `credits_topped_up` event (fires on successful top-up, includes `creditsAdded`, `newBalance`)
+- Added `classifyRenderError(msg)` helper in `api.js` — categorizes errors as `ffmpeg`, `whisper`, `ai_api`, `missing_file`, `timeout`, `credits`, or `unknown`
+- `render_failed` now includes `errorType` property for grouping in PostHog dashboard
+- Events confirmed firing: render test showed `render_started` + `render_completed` in PostHog
+
+### Session — v0.1.33 auto-updater + v0.1.34 rotation confidence hierarchy
+
+**Auto-updater (v0.1.33)**
+- `GET /version` route added to Cloudflare Worker — returns `{ version, downloadUrl }` from `CURRENT_VERSION` env var
+- `checkForUpdates(win)` in `main.js` — polls Worker 5s after window ready-to-show; calls `isNewerVersion()` semver compare
+- `update:available` IPC event sent to renderer with `{ version, downloadUrl }`
+- `preload.js`: `onUpdateAvailable` callback exposed to renderer
+- `home.html`: blue update banner slides in at top with version + "Download →" link + dismiss button
+- `wrangler.toml` `[vars] CURRENT_VERSION` updated on each release; `wrangler deploy` pushes it live
+
+**Rotation confidence hierarchy (v0.1.34)**
+
+Five fixes for multi-camera footage (GoPro, DJI, Sony, Android, BMPCC):
+
+1. **Portrait b-roll gap** (`clipRotFrag`, `clipIsLandscapeForVertical`): For faceless display-matrix clips where Vision says 90°/270°, now checks `storedH > storedW`. Portrait-stored pixels → keep Vision's answer. Landscape-stored → override to 0° (existing conservative behavior preserved).
+
+2. **FCPXML sync** (`fcpxml.js` `xmlMotionRotation`): Rewritten to mirror `clipRotFrag` exactly. Fixed 3 divergences: a-roll fallback (`?? metaRot` → `?? (rotFromTag ? metaRot : 0)`), TAG b-roll (now uses `metaRot` directly, never Vision), portrait check added for matrix b-roll.
+
+3. **Sony display matrix regex** (`parseRotation` line 65): Now catches both `rotation of -90 degrees` (FFmpeg standard) and `Rotation: -90 degrees` (Sony format).
+
+4. **DJI dual TAG+matrix** (`parseRotation`): When both present, if TAG=0 but matrix≠0, trust matrix (TAG is a DJI placeholder default). Rounding moved into per-branch calculations; stale final round line removed.
+
+5. **Remove `contentTags:'people'` from hasFace** (`buildInterleaved`, `buildSequential`): Only `hasFace` and `isTalkingHead` booleans now grant Vision rotation trust. `contentTags:'people'` fired on distant silhouettes/crowds and incorrectly promoted Vision rotation authority.
+
+**iPhone vlog test confirmed all rotation correct after these fixes.**
+
+**Distribution fixes**
+- GitHub repo made **public** — release DMG downloads now work for all users without GitHub login
+- DMG artifact name changed to `Slice-of-Life.dmg` (no version number) in `package.json` `build.dmg.artifactName`
+- Permanent download URL: `https://github.com/sliceoflifeapp/slice-of-life/releases/latest/download/Slice-of-Life.dmg`
+- `download.html` updated to use permanent URL; version shown as `v0.1.34`
+- `index.html` version + copyright updated (v0.1.34, © 2026)
+- Download page centering fixed: replaced `min-height:100vh flex` with `margin: 0 auto` on card — immune to `overflow-x:hidden` zoom issue
+- Download page steps section fixed: class name collision with `style.css` `.steps { display:flex }` — renamed to `.setup-step` etc.
+- Step 3 copy corrected: "top right" not "bottom left" for settings gear location
+
+**PostHog on website (`gather-web/index.html`, `gather-web/download.html`)**
+- PostHog JS snippet added to both pages; same project key as app (`phc_CPkXBiAaHJCLEoKHgWy9Hiu3m3uPuoH66SQMNUuxLVFr`)
+- All website events tagged `platform: 'website'` — filterable separately from app events in PostHog
+- `persistence: 'memory'` — no cookies, no localStorage fingerprinting
+- Events tracked: `$pageview`, `$pageleave`, `buy_click` (landing), `faq_open` (landing), `purchase_confirmed_page_view` (download), `dmg_download_click` (download)
+- Funnel: landing page view → buy_click → purchase_confirmed_page_view → dmg_download_click
+- Confirmed working: FAQ open events visible in PostHog Live Events
+
+**Apple Developer enrollment**
+- Nathan enrolled at developer.apple.com (Individual account, $99)
+- ID photo upload failed repeatedly in Mac app and iOS app — completed via phone enrollment flow
+- Status: **Pending approval** — email expected within 24h
+- Xcode downloading (15GB) on Mac — needed for Developer ID certificate creation
+- macOS update required before Xcode could install
+
+### Pending next session
+
+- **Apple Developer approval email** — when received, create Developer ID certificate in Xcode, add notarization to build, ship v0.1.35
+- LS product Buy button URLs need real checkout links (currently `href="#"` on landing page)
+- LS products flip Draft → Active after LLC + business bank account
+- LLC formation + business bank account (Nathan's personal tasks)
+- Demo video — record screen during a real footage run; becomes landing page hero video
