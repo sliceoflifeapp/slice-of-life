@@ -62,17 +62,31 @@ const BROLL_CUT_DEFAULT = 7;    // seconds per b-roll cutaway during narration
 //                  bake in the same angle directly (no negation): (-90+360)%360=270 → transpose=2
 function parseRotation(ffmpegOutput) {
   const tagRot = ffmpegOutput.match(/rotate\s*:\s*(-?\d+)/);
-  const matRot = ffmpegOutput.match(/rotation of\s*(-?[\d.]+)\s*degrees/i);
+  // Catch both FFmpeg standard ("rotation of -90 degrees") and Sony ("Rotation: -90 degrees")
+  const matRot = ffmpegOutput.match(/(?:rotation of|Rotation:)\s*(-?[\d.]+)\s*degrees?/i);
   let rotation = 0;
   let rotFromTag = false;
   if (tagRot) {
-    rotation   = ((parseInt(tagRot[1], 10) + 360) % 360);
-    rotFromTag = true;
+    const tagVal = Math.round(((parseInt(tagRot[1], 10) + 360) % 360) / 90) * 90 % 360;
+    if (matRot) {
+      // Both TAG and matrix present (DJI edge case).
+      // If TAG=0 but matrix≠0, the TAG is a placeholder default; trust the matrix.
+      const matVal = Math.round(((parseFloat(matRot[1]) + 360) % 360) / 90) * 90 % 360;
+      if (tagVal === 0 && matVal !== 0) {
+        rotation   = matVal;
+        rotFromTag = false;   // treat as matrix so Vision can still override if needed
+      } else {
+        rotation   = tagVal;
+        rotFromTag = true;
+      }
+    } else {
+      rotation   = tagVal;
+      rotFromTag = true;
+    }
   } else if (matRot) {
-    rotation   = ((parseFloat(matRot[1]) + 360) % 360);
+    rotation   = Math.round(((parseFloat(matRot[1]) + 360) % 360) / 90) * 90 % 360;
     rotFromTag = false;
   }
-  rotation = Math.round(rotation / 90) * 90 % 360;
   return { rotation, rotFromTag };
 }
 
@@ -162,11 +176,11 @@ function rotFrag(rotation) {
 
 // High-level: returns the rotation filter fragment for a clip.
 //
-// Simple rule: Vision is the authority for all display-matrix clips.
-// Vision receives raw (unrotated) frames and reports the TOTAL clockwise
-// rotation needed. If Vision has no opinion, default is no rotation.
-// Rotate-TAG clips are always trusted directly — the tag value is reliable
-// and Vision may under-rotate cameras that store rotation only in the tag.
+// A-roll:             Vision authoritative; falls back to rotate TAG, then 0°.
+// Rotate-TAG broll:   TAG is always authoritative.
+// Display-matrix broll: Vision always authoritative; falls back to 0° (raw frame)
+//                     if Vision unavailable. Display matrix metadata is ignored —
+//                     it has proven unreliable and conflicts with Vision in practice.
 function clipRotFrag(info, clipType, suggestedRotation, hasFace, src) {
   const tag = require('path').basename(src || '');
 
@@ -183,13 +197,32 @@ function clipRotFrag(info, clipType, suggestedRotation, hasFace, src) {
     return rotFrag(info.rotation);
   }
 
-  // Display-matrix clips: Vision decides from raw pixels. No Vision = no rotation.
-  if (suggestedRotation != null) {
-    console.log(`[rot] ${tag}: broll/matrix → Vision ${suggestedRotation}°`);
-    return rotFrag(suggestedRotation);
+  // Display-matrix b-roll: Vision is authoritative with one restriction.
+  // For clips WITH a face: trust Vision fully — the face orientation is unambiguous.
+  // For clips WITHOUT a face: trust Vision for 0° and 180° only.
+  //   - 0° = "already correct" — reliable.
+  //   - 180° = "upside-down" — visually unambiguous, Vision is reliable.
+  //   - 90°/270° = "sideways" — unreliable for action/diagonal content (POV shots,
+  //     staircase clips, walking shots). Vision mistakes intentional angles for
+  //     tilted cameras. Fall back to 0° (show raw frame) in these cases.
+  const label = hasFace ? 'broll/matrix+face' : 'broll/matrix';
+  let rot = suggestedRotation ?? 0;
+  if (!hasFace && rot !== 0 && rot !== 180) {
+    // Portrait-stored pixels (storedH > storedW): the camera was held vertically.
+    // Vision saying 90°/270° is plausible — keep it.
+    // Landscape-stored pixels: sideways Vision calls are unreliable (action shots,
+    // diagonal/POV content). Default to 0° to avoid making things worse.
+    const isPortraitStored = (info.storedH || 0) > (info.storedW || 0);
+    if (isPortraitStored) {
+      console.log(`[rot] ${tag}: ${label} → Vision ${rot}° (portrait-stored pixels, keeping)`);
+      return rotFrag(rot);
+    }
+    rot = 0;
+    console.log(`[rot] ${tag}: ${label} → Vision ${suggestedRotation}° overridden → 0° (landscape-stored, sideways unreliable)`);
+    return rotFrag(0);
   }
-  console.log(`[rot] ${tag}: broll/matrix → Vision=null, keep as-is`);
-  return '';
+  console.log(`[rot] ${tag}: ${label} → Vision ${rot}°${suggestedRotation == null ? ' (fallback)' : ''}`);
+  return rotFrag(rot);
 }
 
 // Compute the best trim-start for a b-roll cutaway of brDur seconds.
@@ -615,7 +648,16 @@ function clipIsLandscapeForVertical(info, suggestedRotation, clipType, hasFace =
   } else if (rotFromTag) {
     effectiveRot = rotation;                              // tag always authoritative
   } else {
-    effectiveRot = suggestedRotation ?? 0;               // display-matrix: Vision or no rotation
+    // Mirror clipRotFrag exactly — faceless clips only trust Vision for 0° and 180°,
+    // unless the clip is portrait-stored (storedH > storedW), in which case
+    // 90°/270° is plausible and Vision is kept.
+    const vRot = suggestedRotation ?? 0;
+    if (!hasFace && vRot !== 0 && vRot !== 180) {
+      const isPortraitStored = storedH > storedW;
+      effectiveRot = isPortraitStored ? vRot : 0;
+    } else {
+      effectiveRot = vRot;
+    }
   }
 
   const displayW = (effectiveRot === 90 || effectiveRot === 270) ? storedH : storedW;
@@ -631,13 +673,15 @@ async function buildInterleaved(assembly, outPath, onProgress, musicOpts, FACE_D
   const rotByPath = new Map();
   const faceByPath = new Map();
   for (const clip of assembly) {
-    const hasFace = !!(clip.vision?.hasFace || clip.vision?.isTalkingHead ||
-                       clip.vision?.contentTags?.includes('people'));
+    // Use only the explicit face/narration booleans — not contentTags.
+    // contentTags:'people' is too loose (fires on distant silhouettes, crowd shots)
+    // and incorrectly grants Vision trust for rotation decisions.
+    const hasFace = !!(clip.vision?.hasFace || clip.vision?.isTalkingHead);
     faceByPath.set(clip.path, hasFace);
-    // Only trust Vision rotation for clips with a visible face — a face provides
-    // unambiguous orientation. Faceless clips (animals, landscapes, objects) are
-    // visually ambiguous and Vision frequently guesses wrong. Keep them as-is.
-    const rot = hasFace ? (clip.vision?.suggestedRotation ?? clip.suggestedRotation) : null;
+    // Trust Vision rotation for all clips — Vision sees the raw pixels and reports
+    // exactly what rotation is needed. Store for all clips; clipRotFrag ignores it
+    // for rotate-TAG b-roll (tag authoritative) and falls back to 0° when null.
+    const rot = clip.vision?.suggestedRotation ?? clip.suggestedRotation ?? null;
     if (rot != null) rotByPath.set(clip.path, rot);
   }
 
@@ -1149,8 +1193,8 @@ async function buildSequential(assembly, outPath, onProgress, musicOpts, BROLL_C
   const rotByPath = new Map();
   const faceByPath = new Map();
   for (const clip of assembly) {
-    const hasFace = !!(clip.vision?.hasFace || clip.vision?.isTalkingHead ||
-                       clip.vision?.contentTags?.includes('people'));
+    // Use only the explicit face/narration booleans — not contentTags.
+    const hasFace = !!(clip.vision?.hasFace || clip.vision?.isTalkingHead);
     faceByPath.set(clip.path, hasFace);
     const rot = clip.vision?.suggestedRotation ?? clip.suggestedRotation;
     if (rot != null) rotByPath.set(clip.path, rot);

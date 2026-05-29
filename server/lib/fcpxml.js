@@ -96,20 +96,35 @@ function fileBlock(clip) {
 // Premiere auto-reads the QuickTime rotate TAG but NOT the display matrix.
 // Returns null when no filter needed.
 function xmlMotionRotation(clip, clipType) {
-  const rotFromTag   = clip.rotFromTag || false;
-  const metaRot      = clip.rotation   || 0;
-  const premiereAuto = rotFromTag ? metaRot : 0;
+  const rotFromTag        = clip.rotFromTag || false;
+  const metaRot           = clip.rotation   || 0;
+  const storedW           = clip.storedW    || 0;
+  const storedH           = clip.storedH    || 0;
+  const suggestedRotation = clip.vision?.suggestedRotation ?? null;
+  // Mirror journal-video.js hasFace definition — explicit booleans only, not contentTags
+  const hasFace           = !!(clip.vision?.hasFace || clip.vision?.isTalkingHead);
 
+  // Compute what ffmpeg actually applied — mirrors clipRotFrag exactly.
   let videoApplied;
   if (clipType === 'aroll') {
-    videoApplied = clip.vision?.suggestedRotation ?? metaRot;
-  } else if (!rotFromTag) {
-    const hasFace = !!(clip.vision?.hasFace || clip.vision?.isTalkingHead);
-    videoApplied  = (hasFace && clip.vision?.suggestedRotation != null)
-      ? clip.vision.suggestedRotation : 0;
+    // A-roll: Vision authoritative, fall back to rotate TAG, then 0°
+    videoApplied = suggestedRotation ?? (rotFromTag ? metaRot : 0);
+  } else if (rotFromTag) {
+    // Rotate-TAG b-roll: tag always authoritative; Vision never used
+    videoApplied = metaRot;
   } else {
-    videoApplied = clip.vision?.suggestedRotation ?? metaRot;
+    // Display-matrix b-roll: mirror clipRotFrag confidence hierarchy
+    let rot = suggestedRotation ?? 0;
+    if (!hasFace && rot !== 0 && rot !== 180) {
+      // Portrait-stored: keep Vision's 90°/270°. Landscape-stored: override to 0°.
+      const isPortraitStored = storedH > storedW;
+      rot = isPortraitStored ? rot : 0;
+    }
+    videoApplied = rot;
   }
+
+  // What Premiere auto-reads: rotate TAG only (display matrix is ignored by Premiere)
+  const premiereAuto = rotFromTag ? metaRot : 0;
 
   const deltaCW = (videoApplied - premiereAuto + 360) % 360;
   if (deltaCW === 0) return null;
