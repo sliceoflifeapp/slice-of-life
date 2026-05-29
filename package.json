@@ -45,6 +45,7 @@
     },
     "dmg": {
       "title": "Slice of Life",
+      "artifactName": "Slice-of-Life.dmg",
       "background": null,
       "window": {
         "width": 540,
