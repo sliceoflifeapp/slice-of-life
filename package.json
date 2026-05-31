@@ -1,6 +1,6 @@
 {
   "name": "slice-of-life",
-  "version": "0.1.36",
+  "version": "0.1.37",
   "description": "Personal video journal maker",
   "main": "main.js",
   "scripts": {
