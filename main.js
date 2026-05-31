@@ -1,7 +1,10 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { randomBytes } = require('crypto');
 const path = require('path');
 const fs   = require('fs');
 const os   = require('os');
+
+const APP_TOKEN = randomBytes(32).toString('hex');
 
 // One-time migration: move data into Electron's guaranteed-writable userData dir.
 // Chain: ~/.gather → ~/.slice-of-life → userData (~/Library/Application Support/Slice of Life)
@@ -36,7 +39,7 @@ let mainWindow;
 
 async function init() {
   const { start } = require('./server/index.js');
-  const port = await start();
+  const port = await start(APP_TOKEN);
   createWindow(port);
 }
 
@@ -45,7 +48,8 @@ function createWindow(port) {
     width: 820,
     height: 820,
     resizable: false,
-    frame: false,
+    titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 20, y: 18 },
     show: false,              // hide until the page is fully painted
     backgroundColor: '#06111F', // matches the app's dark navy background
     webPreferences: {
@@ -81,6 +85,13 @@ function createWindow(port) {
 
 app.whenReady().then(init);
 
+ipcMain.handle('app:getToken', () => APP_TOKEN);
+ipcMain.handle('app:getVersion', () => app.getVersion());
+
+ipcMain.on('window:setPosition', (_, x, y) => {
+  if (mainWindow) mainWindow.setPosition(x, y);
+});
+
 ipcMain.handle('dialog:selectFolder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile', 'openDirectory', 'multiSelections'],
@@ -114,6 +125,10 @@ ipcMain.handle('shell:showInFinder', (_, filePath) => {
 });
 
 ipcMain.handle('shell:openExternal', (_, url) => {
+  try {
+    const proto = new URL(url).protocol;
+    if (proto !== 'https:' && proto !== 'mailto:') return;
+  } catch { return; }
   shell.openExternal(url);
 });
 

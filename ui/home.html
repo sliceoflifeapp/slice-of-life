@@ -34,6 +34,8 @@
       display: block;
       opacity: 0.92;
       filter: drop-shadow(0 0 50px rgba(50, 120, 255, 0.40)) drop-shadow(0 0 18px rgba(130, 180, 255, 0.50));
+      -webkit-user-drag: none;
+      user-select: none;
     }
     .hero-right {
       flex: 1;
@@ -521,11 +523,10 @@
     .credits-bar {
       display: flex;
       align-items: center;
-      justify-content: space-between;
       padding: 16px 40px 24px;
       border-top: 0.5px solid #0D2540;
       flex-shrink: 0;
-      gap: 16px;
+      -webkit-app-region: no-drag;
     }
     .credits-left  { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
     .credits-pip   { width: 8px; height: 8px; border-radius: 50%; background: #5B9EF0; flex-shrink: 0; }
@@ -534,21 +535,21 @@
     .credits-buy   {
       font-size: 12px; color: #5B9EF0;
       background: none; border: none; cursor: pointer;
-      padding: 0; font-family: inherit; flex-shrink: 0;
+      padding: 0 0 0 10px; font-family: inherit; flex-shrink: 0;
     }
     .credits-buy:hover { text-decoration: underline; }
     .social-blurb {
-      display: flex; align-items: center; gap: 7px;
-      font-size: 11px; color: #3A6090;
-      flex: 1; justify-content: center;
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      gap: 6px; font-size: 11px; color: #3A6090;
     }
-    .social-blurb-dot { width: 3px; height: 3px; border-radius: 50%; background: #1E3A5A; flex-shrink: 0; }
-    .social-blurb a {
-      color: #5B9EF0; text-decoration: none; font-weight: 500;
-    }
+    .social-blurb a { color: #5B9EF0; text-decoration: none; font-weight: 500; }
     .social-blurb a:hover { text-decoration: underline; }
-    .social-ig-link { font-size: 18px; line-height: 1; text-decoration: none !important; color: #5B9EF0; vertical-align: middle; position: relative; top: -1px; }
+    .social-ig-link { font-size: 16px; line-height: 1; text-decoration: none !important; color: #5B9EF0; vertical-align: middle; position: relative; top: -1px; }
     .social-ig-link:hover { color: #90C4FF; }
+    .footer-links { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .footer-links a { font-size: 11px; color: #3A6090; text-decoration: none; }
+    .footer-links a:hover { color: #6A9FD4; }
+    .footer-sep { font-size: 11px; color: #1A3050; user-select: none; }
 
     /* ── Settings panel ────────────────────────────────────────────────────── */
     /* ── Top-up modal ──────────────────────────────────────────────────────── */
@@ -834,6 +835,16 @@
 <body>
   <div class="app-window">
 
+    <!-- Title bar — native traffic lights handle drag via titleBarStyle:'hidden' -->
+    <div class="title-bar">
+      <span class="app-name">Slice of Life</span>
+      <div style="display:flex;gap:14px;-webkit-app-region:no-drag;">
+        <i class="ti ti-file-text settings-icon" aria-label="Filming guide" onclick="openGuide()" title="How to film"></i>
+        <i class="ti ti-writing settings-icon" aria-label="Today's Prompt" onclick="openPrompt()" title="Today's Prompt"></i>
+        <i class="ti ti-settings settings-icon" aria-label="Settings" onclick="openSettings()"></i>
+      </div>
+    </div>
+
     <!-- Inner panel with animated background -->
     <div class="inner" id="inner">
       <canvas id="orbs"></canvas>
@@ -844,21 +855,6 @@
       </div>
 
       <div id="main-content">
-
-      <!-- Title bar -->
-      <div class="title-bar">
-        <div class="traffic-lights">
-          <div class="dot dot-red"    onclick="window.electronAPI.windowControl('close')"></div>
-          <div class="dot dot-yellow" onclick="window.electronAPI.windowControl('minimize')"></div>
-          <div class="dot dot-green"  onclick="window.electronAPI.windowControl('maximize')"></div>
-        </div>
-        <span class="app-name">Slice of Life</span>
-        <div style="display:flex;gap:14px;-webkit-app-region:no-drag;">
-          <i class="ti ti-file-text settings-icon" aria-label="Filming guide" onclick="openGuide()" title="How to film"></i>
-          <i class="ti ti-writing settings-icon" aria-label="Today's Prompt" onclick="openPrompt()" title="Today's Prompt"></i>
-          <i class="ti ti-settings settings-icon" aria-label="Settings" onclick="openSettings()"></i>
-        </div>
-      </div>
 
       <!-- Update available banner — shown when Worker reports a newer version -->
       <div id="update-banner">
@@ -874,7 +870,7 @@
 
         <!-- Left: large logo -->
         <div class="hero-left">
-          <img src="/assets/logo-white.png" alt="Slice of Life" class="hero-logo-img">
+          <img src="/assets/logo-white.png" alt="Slice of Life" class="hero-logo-img" draggable="false">
         </div>
 
         <!-- Right: headline + CTA -->
@@ -938,15 +934,20 @@
           <div class="credits-pip"></div>
           <span class="credits-label">Credits</span>
           <span class="credits-count" id="credits-count">— remaining</span>
+          <button class="credits-buy" onclick="openTopUp()">Top up</button>
         </div>
-        <button class="credits-buy" onclick="openTopUp()">Top up</button>
 
         <div class="social-blurb">
-          <a href="#" onclick="event.preventDefault(); window.electronAPI.openExternal('https://forms.gle/vXG9oHvTDAWXFqFN7')">Submit your Slice</a> and get featured on
-          <a href="#" class="social-ig-link" onclick="event.preventDefault(); window.electronAPI.openExternal('https://www.instagram.com/sliceoflife_app/')" title="@sliceoflife.app on Instagram"><i class="ti ti-brand-instagram"></i></a>
-          <a href="#" onclick="event.preventDefault(); openFeedback()" style="margin-left:auto;">Report a bug</a>
+          <a href="#" onclick="event.preventDefault(); window.electronAPI.openExternal('https://forms.gle/vXG9oHvTDAWXFqFN7')">Submit your Slice</a>
+          and get featured on
+          <a href="#" class="social-ig-link" onclick="event.preventDefault(); window.electronAPI.openExternal('https://www.instagram.com/sliceoflife_app/')" title="@sliceoflife_app on Instagram"><i class="ti ti-brand-instagram"></i></a>
         </div>
 
+        <div class="footer-links">
+          <a href="#" onclick="event.preventDefault(); openFeedback()">Report a bug</a>
+          <span class="footer-sep">·</span>
+          <a href="#" onclick="event.preventDefault(); openFeatureRequest()">Request a Feature</a>
+        </div>
       </div>
 
       </div><!-- /main-content -->
@@ -1038,7 +1039,7 @@
 
         <div style="text-align:center;padding:16px 0 20px;">
           <div style="font-size:20px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#fff;margin-bottom:6px;">Slice of Life</div>
-          <div style="font-size:12px;color:#5A7A9A;">Version 0.1.32</div>
+          <div id="about-version" style="font-size:12px;color:#5A7A9A;">Version …</div>
           <div style="font-size:12px;color:#3A6090;margin-top:8px;line-height:1.6;">Your footage never leaves your Mac.<br>Built for daily vloggers.</div>
           <div style="font-size:11px;color:#3A6090;margin-top:12px;">© 2026 Nathan Griffey. All rights reserved.</div>
         </div>
@@ -1257,6 +1258,18 @@
     </div>
   </div>
 
+  <!-- Feature request overlay -->
+  <div class="topup-overlay" id="feature-overlay" onclick="closeFeatureOnOverlay(event)">
+    <div class="topup-card" style="width:320px;">
+      <div class="topup-header">
+        <div class="topup-title">Request a Feature</div>
+        <button class="topup-close" onclick="closeFeature()"><i class="ti ti-x"></i></button>
+      </div>
+      <textarea class="feedback-textarea" id="feature-text" placeholder="What would you like to see? How would you use it?"></textarea>
+      <button class="save-btn" onclick="submitFeature()">Send</button>
+    </div>
+  </div>
+
   <!-- Activation overlay — blocking, no close button -->
   <div class="settings-overlay" id="activation-overlay">
     <div class="settings-panel" id="activation-panel">
@@ -1277,6 +1290,8 @@
 
 <script src="/js/orbs.js"></script>
 <script src="/js/sound.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/drag.js"></script>
   <script src="/js/home.js"></script>
   <script src="/js/settings.js"></script>
   <script>

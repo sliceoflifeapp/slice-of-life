@@ -12,6 +12,26 @@ function toggleSettingsFaq(el) {
   document.getElementById('settings-faq-items').classList.toggle('open');
 }
 
+function toggleLicenses(el) {
+  el.classList.toggle('open');
+  document.getElementById('licenses-items').classList.toggle('open');
+}
+
+async function openAbout() {
+  closeSettings();
+  document.getElementById('about-overlay').classList.add('open');
+  try {
+    const v = await window.electronAPI.getAppVersion();
+    document.getElementById('about-version').textContent = `Version ${v}`;
+  } catch {}
+}
+function closeAbout() {
+  document.getElementById('about-overlay').classList.remove('open');
+}
+function closeAboutOnOverlay(e) {
+  if (e.target === document.getElementById('about-overlay')) closeAbout();
+}
+
 // ── Today's Prompt panel ──────────────────────────────────────────────────────
 
 const NOTEPAD_KEY = 'sol-notepad';
@@ -65,7 +85,7 @@ async function toggleNotepadMic() {
         const blob = new Blob(chunks, { type: 'audio/webm' });
         const form = new FormData();
         form.append('audio', blob, 'recording.webm');
-        const res  = await fetch('/api/stt', { method: 'POST', body: form });
+        const res  = await apiFetch('/api/stt', { method: 'POST', body: form });
         const data = await res.json();
         if (data.text) {
           ta.value = ta.value ? ta.value.trimEnd() + '\n' + data.text : data.text;
@@ -121,7 +141,7 @@ async function pickMacFolder(mode) {
     const ext = single.split('.').pop().toLowerCase();
     if (VIDEO_EXTS.has(ext)) {
       // Single file — stage it
-      const res = await fetch('/api/files/stage', {
+      const res = await apiFetch('/api/files/stage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filePaths }),
@@ -132,7 +152,7 @@ async function pickMacFolder(mode) {
     }
   } else {
     // Multiple selections — stage all files into a temp folder
-    const res = await fetch('/api/files/stage', {
+    const res = await apiFetch('/api/files/stage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filePaths }),
@@ -155,7 +175,7 @@ async function openDevicePicker(mode) {
   body.innerHTML = '<div style="color:#3A6090;font-size:13px;text-align:center;padding:20px 0;">Scanning for devices…</div>';
 
   try {
-    const { devices } = await fetch('/api/devices').then(r => r.json());
+    const { devices } = await apiFetch('/api/devices').then(r => r.json());
 
     if (!devices.length) {
       body.innerHTML = `
@@ -220,7 +240,7 @@ async function loadTodaysPrompt() {
 
   if (!data) {
     try {
-      const res = await fetch('/api/prompt/today');
+      const res = await apiFetch('/api/prompt/today');
       data = await res.json();
       if (data.ok && data.narration) {
         localStorage.setItem(cacheKey, JSON.stringify({ narration: data.narration, filming: data.filming }));
@@ -266,7 +286,7 @@ function buildPlaceholderThumb(idx) {
 
 async function loadRecentBanner() {
   try {
-    const data     = await fetch('/api/journals/recent').then(r => r.json());
+    const data     = await apiFetch('/api/journals/recent').then(r => r.json());
     const journals = data.journals || [];
 
     const section = document.getElementById('recent-section');
@@ -323,6 +343,8 @@ async function loadRecentBanner() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  await initAppToken();
+
   const firstOpen = !sessionStorage.getItem('introPlayed');
   if (firstOpen) sessionStorage.setItem('introPlayed', '1');
 
@@ -350,23 +372,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     setTimeout(openGuide, firstOpen ? 3800 : 600);
   }
 
-  // Show offline notice when no internet or no API key.
-  // Server does a real DNS probe so this works even when a key is configured.
-  fetch('/api/settings').then(r => r.json()).then(s => {
+  // Load settings — drives offline notice, credit bar, and activation check
+  apiFetch('/api/settings').then(r => r.json()).then(s => {
     if (!s.isOnline) {
       document.getElementById('offline-notice').style.display = 'block';
     }
-  }).catch(() => {});
-
-  // Load credits
-  fetch('/api/credits').then(r => r.json()).then(data => {
-    document.getElementById('credits-count').textContent =
-      `${data.credits.toLocaleString()} remaining`;
+    updateCreditBar(s.creditBalance);
+    if (!s.hasLicense) {
+      document.getElementById('activation-overlay').classList.add('open');
+    }
   }).catch(() => {});
 
   // Load micro-stats
   document.getElementById('micro-stats').style.display = 'flex';
-  fetch('/api/stats').then(r => r.json()).then(({ slices, clips, footage }) => {
+  apiFetch('/api/stats').then(r => r.json()).then(({ slices, clips, footage }) => {
     document.getElementById('stat-slices').textContent  = slices;
     document.getElementById('stat-clips').textContent   = clips;
     document.getElementById('stat-footage').textContent = footage === '0m' ? '—' : footage;
@@ -422,4 +441,148 @@ function startSession(folderPath) {
   rememberFolder(folderPath);
   sessionStorage.setItem('configureFolderPath', folderPath);
   window.location.href = '/configure';
+}
+
+// ── Credits ────────────────────────────────────────────────────────────────────
+
+function updateCreditBar(balance) {
+  const el = document.getElementById('credits-count');
+  if (!el) return;
+  if (balance === null || balance === undefined) {
+    el.textContent = '— remaining';
+  } else {
+    el.textContent = `${balance.toLocaleString()} remaining`;
+  }
+}
+
+// ── Feedback ───────────────────────────────────────────────────────────────────
+
+function openFeedback() {
+  document.getElementById('feedback-overlay').classList.add('open');
+  document.getElementById('feedback-text').value = '';
+  setTimeout(() => document.getElementById('feedback-text').focus(), 50);
+}
+function closeFeedback() {
+  document.getElementById('feedback-overlay').classList.remove('open');
+}
+function closeFeedbackOnOverlay(e) {
+  if (e.target === document.getElementById('feedback-overlay')) closeFeedback();
+}
+function submitFeedback() {
+  const msg = document.getElementById('feedback-text').value.trim();
+  if (!msg) return;
+  const subject = encodeURIComponent('Slice of Life Bug Report');
+  const body    = encodeURIComponent(msg);
+  window.electronAPI.openExternal(`mailto:sliceoflifetech@gmail.com?subject=${subject}&body=${body}`);
+  closeFeedback();
+}
+
+function openFeatureRequest() {
+  document.getElementById('feature-overlay').classList.add('open');
+  document.getElementById('feature-text').value = '';
+  setTimeout(() => document.getElementById('feature-text').focus(), 50);
+}
+function closeFeature() {
+  document.getElementById('feature-overlay').classList.remove('open');
+}
+function closeFeatureOnOverlay(e) {
+  if (e.target === document.getElementById('feature-overlay')) closeFeature();
+}
+function submitFeature() {
+  const msg = document.getElementById('feature-text').value.trim();
+  if (!msg) return;
+  const subject = encodeURIComponent('Slice of Life Feature Request');
+  const body    = encodeURIComponent(msg);
+  window.electronAPI.openExternal(`mailto:sliceoflifetech@gmail.com?subject=${subject}&body=${body}`);
+  closeFeature();
+}
+
+function openTopUp() {
+  document.getElementById('topup-overlay').classList.add('open');
+  document.getElementById('topup-code-input').value = '';
+  document.getElementById('topup-error').textContent = '';
+  document.getElementById('topup-success').textContent = '';
+}
+function closeTopUp() {
+  document.getElementById('topup-overlay').classList.remove('open');
+}
+function closeTopUpOnOverlay(e) {
+  if (e.target === document.getElementById('topup-overlay')) closeTopUp();
+}
+
+async function redeemTopUp() {
+  const input = document.getElementById('topup-code-input');
+  const errorEl = document.getElementById('topup-error');
+  const successEl = document.getElementById('topup-success');
+  const btn = document.getElementById('topup-redeem-btn');
+  const code = input.value.trim();
+
+  if (!code) { errorEl.textContent = 'Please enter a credit key.'; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Redeeming…';
+  errorEl.textContent = '';
+  successEl.textContent = '';
+
+  try {
+    const res = await apiFetch('/api/topup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topup_code: code }),
+    }).then(r => r.json());
+
+    if (!res.ok) {
+      errorEl.textContent = res.error || 'Redemption failed. Please try again.';
+      btn.disabled = false;
+      btn.textContent = 'Redeem';
+      return;
+    }
+
+    updateCreditBar(res.newBalance);
+    successEl.textContent = `✓ ${res.creditsAdded} credits added. New balance: ${res.newBalance}.`;
+    input.value = '';
+    setTimeout(closeTopUp, 2000);
+  } catch (err) {
+    errorEl.textContent = 'Could not connect. Check your internet connection.';
+    btn.disabled = false;
+    btn.textContent = 'Redeem';
+  }
+}
+
+async function activateApp() {
+  const input = document.getElementById('activation-key-input');
+  const errorEl = document.getElementById('activation-error');
+  const btn = document.getElementById('activate-btn');
+  const key = input.value.trim();
+
+  if (!key) {
+    errorEl.textContent = 'Please enter your license key.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Activating…';
+  errorEl.textContent = '';
+
+  try {
+    const res = await apiFetch('/api/activate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ license_key: key }),
+    }).then(r => r.json());
+
+    if (!res.ok) {
+      errorEl.textContent = res.error || 'Activation failed. Please check your key and try again.';
+      btn.disabled = false;
+      btn.textContent = 'Activate';
+      return;
+    }
+
+    document.getElementById('activation-overlay').classList.remove('open');
+    updateCreditBar(res.credits);
+  } catch (err) {
+    errorEl.textContent = 'Could not connect to activation server. Check your internet connection.';
+    btn.disabled = false;
+    btn.textContent = 'Activate';
+  }
 }

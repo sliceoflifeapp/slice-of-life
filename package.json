@@ -1,6 +1,6 @@
 {
   "name": "slice-of-life",
-  "version": "0.1.34",
+  "version": "0.1.36",
   "description": "Personal video journal maker",
   "main": "main.js",
   "scripts": {
@@ -21,26 +21,31 @@
     "sql.js": "^1.14.1"
   },
   "devDependencies": {
-    "electron": "^32.0.0",
+    "@electron/notarize": "^3.1.1",
+    "electron": "^39.0.0",
     "electron-builder": "^26.8.1"
   },
   "build": {
     "appId": "app.sliceoflife.app",
     "productName": "Slice of Life",
     "copyright": "Copyright © 2026 Slice of Life",
+    "afterSign": "scripts/notarize.js",
+    "afterPack": "scripts/sign-natives.js",
     "mac": {
       "category": "public.app-category.photography",
       "icon": "build/icon.icns",
+      "identity": "NATHANIEL CALEM GRIFFEY (JRR5JMZ59T)",
       "target": [
         {
           "target": "dmg",
           "arch": [
-            "universal"
+            "arm64"
           ]
         }
       ],
+      "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
       "gatekeeperAssess": false
     },
     "dmg": {
@@ -60,7 +65,16 @@
       "assets/**/*",
       "node_modules/**/*",
       "!node_modules/electron/**/*",
-      "!node_modules/.cache/**/*"
+      "!node_modules/.cache/**/*",
+      "!node_modules/nodejs-whisper/cpp/whisper.cpp/build/CMakeFiles/**/*",
+      "!node_modules/nodejs-whisper/cpp/whisper.cpp/build/CMakeFiles",
+      "!node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/bench",
+      "!node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/main",
+      "!node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/test-vad",
+      "!node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/test-vad-full",
+      "!node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/vad-speech-segments",
+      "!node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/whisper-bench",
+      "!node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/whisper-server"
     ],
     "asar": true,
     "asarUnpack": [
